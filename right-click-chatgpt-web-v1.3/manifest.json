@@ -1,10 +1,10 @@
 {
   "manifest_version": 3,
-  "name": "Right Click → ChatGPT Web + Telegram",
-  "version": "1.3.0",
-  "description": "Bôi đen văn bản để hỏi ChatGPT Web; gửi câu trả lời cuối của ChatGPT sang Telegram bằng một nút bấm. Không cần OpenAI API key.",
+  "name": "Right Click → ChatGPT Web + Gemini + Telegram",
+  "version": "1.5.0",
+  "description": "Bôi đen văn bản để hỏi ChatGPT Web và Gemini API song song; tự động gửi câu trả lời sang Telegram.",
   "permissions": ["storage", "tabs", "scripting", "contextMenus"],
-  "host_permissions": ["<all_urls>", "https://api.telegram.org/*"],
+  "host_permissions": ["<all_urls>", "https://api.telegram.org/*", "https://generativelanguage.googleapis.com/*"],
   "background": {
     "service_worker": "background.js"
   },
@@ -24,6 +24,6 @@
   ],
   "action": {
     "default_popup": "popup.html",
-    "default_title": "ChatGPT Web + Telegram"
+    "default_title": "ChatGPT Web + Gemini + Telegram"
   }
 }
