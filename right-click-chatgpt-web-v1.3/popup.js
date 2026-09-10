@@ -74,14 +74,11 @@ function clearModelOptions(message = "Nhập API Key để tải model...") {
 }
 
 function modelDisplayName(model) {
-  return model.displayName && model.displayName !== model.name
-    ? model.displayName
-    : model.name;
+  return model.displayName && model.displayName !== model.name ? model.displayName : model.name;
 }
 
 function renderModelList(models) {
   geminiModelList.replaceChildren();
-
   if (!models.length) {
     const empty = document.createElement("div");
     empty.className = "model-picker-empty";
@@ -89,24 +86,19 @@ function renderModelList(models) {
     geminiModelList.appendChild(empty);
     return;
   }
-
   for (const model of models) {
     const item = document.createElement("button");
     item.type = "button";
     item.className = "model-picker-item";
     if (model.name === selectedGeminiModel) item.classList.add("selected");
-
     const name = document.createElement("span");
     name.className = "model-picker-name";
     name.textContent = modelDisplayName(model);
-
     const id = document.createElement("span");
     id.className = "model-picker-id";
     id.textContent = model.name;
-
     item.append(name, id);
     if (model.description) item.title = model.description;
-
     item.addEventListener("click", async () => {
       selectedGeminiModel = model.name;
       updateModelTrigger(modelDisplayName(model), false);
@@ -114,26 +106,19 @@ function renderModelList(models) {
       await chrome.storage.local.set({ geminiModel: selectedGeminiModel });
       showModelStatus(`Đã chọn: ${modelDisplayName(model)}`);
     });
-
     geminiModelList.appendChild(item);
   }
 }
 
 function renderModels(models, preferredModel = "") {
   availableModels = Array.isArray(models) ? models.filter(model => model?.name) : [];
-
-  const preferred = availableModels.some(m => m.name === preferredModel)
-    ? preferredModel
-    : availableModels[0]?.name || "";
-
+  const preferred = availableModels.some(m => m.name === preferredModel) ? preferredModel : availableModels[0]?.name || "";
   selectedGeminiModel = preferred;
-
   if (!availableModels.length) {
     updateModelTrigger("Không có model hỗ trợ generateContent", true);
     geminiModelList.replaceChildren();
     return preferred;
   }
-
   const selected = availableModels.find(m => m.name === preferred);
   updateModelTrigger(modelDisplayName(selected), false);
   renderModelList(availableModels);
@@ -143,39 +128,29 @@ function renderModels(models, preferredModel = "") {
 async function loadGeminiModels(apiKey, { silent = false, preferredModel = "" } = {}) {
   const key = String(apiKey || "").trim();
   const requestId = ++modelRequestId;
-
   if (!key) {
     clearModelOptions();
     showModelStatus("");
     return false;
   }
-
   loadingModels = true;
   updateModelTrigger("◌ Đang tải model...", true);
   closeModelPicker();
   showModelStatus("Đang kiểm tra API Key và tải danh sách model…");
-
   try {
     const result = await chrome.runtime.sendMessage({ type: "LIST_GEMINI_MODELS", apiKey: key });
     if (requestId !== modelRequestId) return false;
-
     if (!result?.ok) {
       clearModelOptions("⚠ Không tải được model");
       showModelStatus(result?.error || "Không tải được danh sách model.", false);
       return false;
     }
-
     const selected = renderModels(result.models || [], preferredModel);
     if (!availableModels.length) {
       showModelStatus("⚠ Không tìm thấy model hỗ trợ generateContent.", false);
       return false;
     }
-
-    await chrome.storage.local.set({
-      geminiApiKey: key,
-      geminiModel: selected
-    });
-
+    await chrome.storage.local.set({ geminiApiKey: key, geminiModel: selected });
     showModelStatus(`✓ Đã tải ${availableModels.length} model hỗ trợ generateContent.`);
     if (!silent) showStatus(`✅ Đã tải ${availableModels.length} model Gemini.`);
     return true;
@@ -192,18 +167,14 @@ async function loadGeminiModels(apiKey, { silent = false, preferredModel = "" } 
 function scheduleModelLoad() {
   clearTimeout(modelLoadTimer);
   const key = geminiApiKey.value.trim();
-
   if (!key) {
     ++modelRequestId;
     clearModelOptions();
     showModelStatus("");
     return;
   }
-
   showModelStatus("Đang chờ nhập xong API Key…");
-  modelLoadTimer = setTimeout(() => {
-    loadGeminiModels(key, { silent: true, preferredModel: selectedGeminiModel });
-  }, 800);
+  modelLoadTimer = setTimeout(() => loadGeminiModels(key, { silent: true, preferredModel: selectedGeminiModel }), 800);
 }
 
 geminiModelTrigger.addEventListener("click", () => {
@@ -213,19 +184,13 @@ geminiModelTrigger.addEventListener("click", () => {
 
 geminiModelSearch.addEventListener("input", () => {
   const query = geminiModelSearch.value.trim().toLowerCase();
-  if (!query) {
-    renderModelList(availableModels);
-    return;
-  }
-
-  const filtered = availableModels.filter(model => {
+  if (!query) return renderModelList(availableModels);
+  renderModelList(availableModels.filter(model => {
     const name = modelDisplayName(model).toLowerCase();
     const id = String(model.name || "").toLowerCase();
     const description = String(model.description || "").toLowerCase();
     return name.includes(query) || id.includes(query) || description.includes(query);
-  });
-
-  renderModelList(filtered);
+  }));
 });
 
 document.addEventListener("click", event => {
@@ -258,12 +223,8 @@ chrome.storage.local.get({
   geminiApiKey.value = settings.geminiApiKey;
   telegramBotToken.value = settings.telegramBotToken;
   telegramChatId.value = settings.telegramChatId;
-
   if (settings.geminiApiKey) {
-    await loadGeminiModels(settings.geminiApiKey, {
-      silent: true,
-      preferredModel: settings.geminiModel
-    });
+    await loadGeminiModels(settings.geminiApiKey, { silent: true, preferredModel: settings.geminiModel });
   } else {
     clearModelOptions();
   }
@@ -274,20 +235,17 @@ includeSource.addEventListener("change", () => chrome.storage.local.set({ includ
 enableChatGPT.addEventListener("change", () => chrome.storage.local.set({ enableChatGPT: enableChatGPT.checked }));
 enableGemini.addEventListener("change", () => chrome.storage.local.set({ enableGemini: enableGemini.checked }));
 parallelMode.addEventListener("change", () => chrome.storage.local.set({ parallelMode: parallelMode.checked }));
-
 geminiApiKey.addEventListener("input", scheduleModelLoad);
 
 saveGemini.addEventListener("click", async () => {
-  if (!geminiApiKey.value.trim()) {
+  const key = geminiApiKey.value.trim();
+  if (!key) {
     showStatus("Nhập Gemini API Key trước.", false);
     return;
   }
-
   saveGemini.disabled = true;
   try {
-    const ok = await loadGeminiModels(geminiApiKey.value.trim(), {
-      preferredModel: selectedGeminiModel
-    });
+    const ok = await loadGeminiModels(key, { preferredModel: selectedGeminiModel });
     if (ok) showStatus(`✅ Đã lưu Gemini và model: ${selectedGeminiModel}`);
   } finally {
     saveGemini.disabled = false;
@@ -295,22 +253,25 @@ saveGemini.addEventListener("click", async () => {
 });
 
 testGemini.addEventListener("click", async () => {
-  if (!geminiApiKey.value.trim()) {
+  const key = geminiApiKey.value.trim();
+  if (!key) {
     showStatus("Nhập Gemini API Key trước.", false);
     return;
-  }
-  if (!selectedGeminiModel) {
-    const ok = await loadGeminiModels(geminiApiKey.value.trim(), {
-      preferredModel: selectedGeminiModel
-    });
-    if (!ok) return;
   }
 
   testGemini.disabled = true;
   showStatus("Đang kiểm tra Gemini…");
   try {
-    await saveGeminiSettings();
-    const result = await chrome.runtime.sendMessage({ type: "TEST_GEMINI" });
+    if (loadingModels || !selectedGeminiModel || !availableModels.some(m => m.name === selectedGeminiModel)) {
+      const ok = await loadGeminiModels(key, { silent: true, preferredModel: selectedGeminiModel });
+      if (!ok) return;
+    }
+    await chrome.storage.local.set({ geminiApiKey: key, geminiModel: selectedGeminiModel });
+    const result = await chrome.runtime.sendMessage({
+      type: "TEST_GEMINI",
+      apiKey: key,
+      model: selectedGeminiModel
+    });
     if (result?.ok) showStatus(`✅ Gemini hoạt động với ${selectedGeminiModel}.`);
     else showStatus(result?.error || "Gemini API lỗi.", false);
   } catch (err) {
