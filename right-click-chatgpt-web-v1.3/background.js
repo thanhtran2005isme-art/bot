@@ -41,6 +41,52 @@ async function injectIntoOpenTabs() {
 chrome.runtime.onInstalled.addListener(async () => { await ensureDefaults(); ensureContextMenu(); await injectIntoOpenTabs(); });
 chrome.runtime.onStartup.addListener(async () => { await ensureDefaults(); ensureContextMenu(); });
 
+function isChatGPTUrl(url) {
+  return /^https:\/\/chatgpt\.com(?:\/|$)/i.test(String(url || "")) || /^https:\/\/chat\.openai\.com(?:\/|$)/i.test(String(url || ""));
+}
+
+async function waitForTabComplete(tabId, timeoutMs = 15000) {
+  const tab = await chrome.tabs.get(tabId);
+  if (tab.status === "complete") return;
+
+  await new Promise((resolve) => {
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      chrome.tabs.onUpdated.removeListener(listener);
+      clearTimeout(timer);
+      resolve();
+    };
+    const listener = (updatedTabId, changeInfo) => {
+      if (updatedTabId === tabId && changeInfo.status === "complete") finish();
+    };
+    const timer = setTimeout(finish, timeoutMs);
+    chrome.tabs.onUpdated.addListener(listener);
+  });
+}
+
+async function sendPendingToChatGPTTab(tabId) {
+  await waitForTabComplete(tabId);
+
+  for (let attempt = 0; attempt < 4; attempt++) {
+    try {
+      await chrome.tabs.sendMessage(tabId, { type: "CHECK_PENDING_PROMPT" });
+      return { ok: true };
+    } catch (_) {
+      try {
+        await chrome.scripting.executeScript({ target: { tabId }, files: ["chatgpt.js"] });
+        await chrome.tabs.sendMessage(tabId, { type: "CHECK_PENDING_PROMPT" });
+        return { ok: true };
+      } catch (error) {
+        if (attempt === 3) return { ok: false, error: `Không kết nối được ChatGPT Web: ${error?.message || error}` };
+        await new Promise(resolve => setTimeout(resolve, 700));
+      }
+    }
+  }
+  return { ok: false, error: "Không thể gửi prompt tới ChatGPT Web." };
+}
+
 async function sendToChatGPT(text, pageTitle, pageUrl) {
   const settings = await chrome.storage.local.get({ autoSend: true, includeSource: false });
   let prompt = String(text || "").trim();
@@ -48,27 +94,24 @@ async function sendToChatGPT(text, pageTitle, pageUrl) {
   if (settings.includeSource && pageUrl) prompt += `\n\nNguồn: ${pageTitle || "Trang web"}\n${pageUrl}`;
 
   await chrome.storage.local.set({ pendingChatGPTPrompt: { text: prompt, createdAt: Date.now(), autoSend: settings.autoSend } });
-  const tabs = await chrome.tabs.query({ url: ["https://chatgpt.com/*"] });
-  let tab;
 
-  if (tabs.length) {
-    tab = tabs.find(t => t.active) || tabs[0];
-    await chrome.tabs.update(tab.id, { active: true });
-    if (tab.windowId != null) await chrome.windows.update(tab.windowId, { focused: true });
-    try {
-      await chrome.tabs.sendMessage(tab.id, { type: "CHECK_PENDING_PROMPT" });
-    } catch (_) {
-      try {
-        await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["chatgpt.js"] });
-        await chrome.tabs.sendMessage(tab.id, { type: "CHECK_PENDING_PROMPT" });
-      } catch (error) {
-        return { ok: false, error: `Không kết nối được ChatGPT Web: ${error?.message || error}` };
-      }
-    }
-  } else {
+  const tabs = await chrome.tabs.query({});
+  const chatTabs = tabs.filter(tab => tab.id && isChatGPTUrl(tab.url));
+  let tab = chatTabs.find(t => t.active) || chatTabs[0];
+
+  if (!tab) {
     tab = await chrome.tabs.create({ url: CHATGPT_URL, active: true });
+  } else {
+    await chrome.tabs.update(tab.id, { active: true });
   }
-  return { ok: true, tabId: tab?.id };
+
+  if (tab.windowId != null) {
+    try { await chrome.windows.update(tab.windowId, { focused: true }); } catch (_) {}
+  }
+
+  const delivered = await sendPendingToChatGPTTab(tab.id);
+  if (!delivered.ok) return delivered;
+  return { ok: true, tabId: tab.id };
 }
 
 async function geminiListModels(apiKey) {
@@ -182,42 +225,31 @@ async function sendToTelegram(text) {
   return { ok: true, messages: chunks.length };
 }
 
-async function flashTelegramMenu(message, ms = 2200) {
-  try {
-    await chrome.contextMenus.update(TELEGRAM_MENU_ID, { title: message });
-    setTimeout(() => chrome.contextMenus.update(TELEGRAM_MENU_ID, { title: "Gửi đoạn đã chọn → Telegram" }).catch(() => {}), ms);
-  } catch (_) {}
+function notifyError(label, error) {
+  console.error(`[Right Click ChatGPT + Gemini] ${label}:`, error);
 }
 
 async function askBoth(text, pageTitle, pageUrl) {
-  const settings = await chrome.storage.local.get({ enableGemini: true, enableChatGPT: true, parallelMode: true });
-  const jobs = [];
+  // The context-menu action is explicitly a dual-provider action.
+  // It must not be disabled by stale enableGemini/enableChatGPT values in storage.
+  const geminiJob = askGemini(text)
+    .then(async answer => {
+      const { geminiModel = "" } = await chrome.storage.local.get({ geminiModel: "" });
+      try {
+        await sendToTelegram(`✨ Gemini (${geminiModel || "model"})\n\n${answer}`);
+        return { provider: "gemini", ok: true, answer, telegramSent: true };
+      } catch (error) {
+        return { provider: "gemini", ok: true, answer, telegramSent: false, telegramError: String(error?.message || error) };
+      }
+    })
+    .catch(error => ({ provider: "gemini", ok: false, error: String(error?.message || error) }));
 
-  if (settings.enableChatGPT) {
-    jobs.push(
-      sendToChatGPT(text, pageTitle, pageUrl)
-        .then(result => ({ provider: "chatgpt", ...result }))
-        .catch(error => ({ provider: "chatgpt", ok: false, error: String(error?.message || error) }))
-    );
-  }
+  const chatgptJob = sendToChatGPT(text, pageTitle, pageUrl)
+    .then(result => ({ provider: "chatgpt", ...result }))
+    .catch(error => ({ provider: "chatgpt", ok: false, error: String(error?.message || error) }));
 
-  if (settings.enableGemini) {
-    jobs.push(
-      askGemini(text)
-        .then(async answer => {
-          const { geminiModel = "" } = await chrome.storage.local.get({ geminiModel: "" });
-          try {
-            await sendToTelegram(`✨ Gemini (${geminiModel || "model"})\n\n${answer}`);
-            return { provider: "gemini", ok: true, answer, telegramSent: true };
-          } catch (error) {
-            return { provider: "gemini", ok: true, answer, telegramSent: false, telegramError: String(error?.message || error) };
-          }
-        })
-        .catch(error => ({ provider: "gemini", ok: false, error: String(error?.message || error) }))
-    );
-  }
-
-  return Promise.all(jobs);
+  // Start both immediately; neither awaits the other.
+  return Promise.all([chatgptJob, geminiJob]);
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -272,14 +304,27 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
     askBoth(info.selectionText, tab?.title, tab?.url)
       .then(results => {
         const gemini = results.find(r => r.provider === "gemini");
-        if (!gemini?.ok) console.error("Gemini:", gemini?.error);
-        if (gemini?.telegramSent === false) console.error("Gemini → Telegram:", gemini.telegramError);
-        if (gemini?.ok) console.log("Gemini completed and Telegram delivery attempted.");
+        const chatgpt = results.find(r => r.provider === "chatgpt");
+        if (!gemini?.ok) notifyError("Gemini", gemini?.error);
+        if (gemini?.telegramSent === false) notifyError("Gemini → Telegram", gemini.telegramError);
+        if (!chatgpt?.ok) notifyError("ChatGPT Web", chatgpt?.error);
       })
       .catch(console.error);
     return;
   }
   if (info.menuItemId === TELEGRAM_MENU_ID) {
-    sendToTelegram(info.selectionText).then(() => flashTelegramMenu("✅ Đã gửi sang Telegram")).catch(async err => { console.error(err); await flashTelegramMenu("❌ Gửi lỗi – mở extension để kiểm tra", 3500); });
+    sendToTelegram(info.selectionText).then(() => {
+      try { flashTelegramMenu("✅ Đã gửi sang Telegram"); } catch (_) {}
+    }).catch(async err => {
+      console.error(err);
+      await flashTelegramMenu("❌ Gửi lỗi – mở extension để kiểm tra", 3500);
+    });
   }
 });
+
+async function flashTelegramMenu(message, ms = 2200) {
+  try {
+    await chrome.contextMenus.update(TELEGRAM_MENU_ID, { title: message });
+    setTimeout(() => chrome.contextMenus.update(TELEGRAM_MENU_ID, { title: "Gửi đoạn đã chọn → Telegram" }).catch(() => {}), ms);
+  } catch (_) {}
+}
