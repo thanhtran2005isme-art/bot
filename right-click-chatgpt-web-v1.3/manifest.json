@@ -1,11 +1,11 @@
 {
   "manifest_version": 3,
   "name": "Right Click → ChatGPT Web + Gemini + Telegram",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "description": "Bôi đen văn bản để hỏi ChatGPT Web và Gemini API song song; tự động gửi câu trả lời sang Telegram.",
   "permissions": ["storage", "tabs", "scripting", "contextMenus"],
   "host_permissions": ["<all_urls>", "https://api.telegram.org/*", "https://generativelanguage.googleapis.com/*"],
-  "background": { "service_worker": "background-direct.js" },
+  "background": { "service_worker": "background-direct-v2.js" },
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
