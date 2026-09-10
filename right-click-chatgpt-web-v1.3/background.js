@@ -192,27 +192,40 @@ async function flashTelegramMenu(message, ms = 2200) {
 async function askBoth(text, pageTitle, pageUrl) {
   const settings = await chrome.storage.local.get({ enableGemini: true, enableChatGPT: true, parallelMode: true });
   const jobs = [];
-  if (settings.enableChatGPT) jobs.push(sendToChatGPT(text, pageTitle, pageUrl).then(r => ({ provider: "chatgpt", ...r })));
-  if (settings.enableGemini) jobs.push(askGemini(text).then(answer => ({ provider: "gemini", ok: true, answer })).catch(error => ({ provider: "gemini", ok: false, error: String(error?.message || error) })));
 
-  if (settings.parallelMode) return Promise.all(jobs);
-  const results = [];
-  for (const job of jobs) results.push(await job);
-  return results;
+  // Both providers start immediately and independently.
+  if (settings.enableChatGPT) {
+    jobs.push(
+      sendToChatGPT(text, pageTitle, pageUrl)
+        .then(result => ({ provider: "chatgpt", ...result }))
+        .catch(error => ({ provider: "chatgpt", ok: false, error: String(error?.message || error) }))
+    );
+  }
+
+  if (settings.enableGemini) {
+    jobs.push(
+      askGemini(text)
+        .then(async answer => {
+          const { geminiModel = "" } = await chrome.storage.local.get({ geminiModel: "" });
+          try {
+            await sendToTelegram(`✨ Gemini (${geminiModel || "model"})\n\n${answer}`);
+            return { provider: "gemini", ok: true, answer, telegramSent: true };
+          } catch (error) {
+            return { provider: "gemini", ok: true, answer, telegramSent: false, telegramError: String(error?.message || error) };
+          }
+        })
+        .catch(error => ({ provider: "gemini", ok: false, error: String(error?.message || error) }))
+    );
+  }
+
+  return Promise.all(jobs);
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === "ASK_CHATGPT_WEB") {
-    askBoth(message.text, message.pageTitle, message.pageUrl).then(async results => {
-      const gemini = results.find(r => r.provider === "gemini");
-      if (gemini?.ok) {
-        try {
-          const { geminiModel = "" } = await chrome.storage.local.get({ geminiModel: "" });
-          await sendToTelegram(`✨ Gemini (${geminiModel || "model"})\n\n${gemini.answer}`);
-        } catch (error) { console.error("Gemini → Telegram:", error); }
-      }
-      sendResponse({ ok: results.some(r => r.ok !== false), results });
-    }).catch(err => sendResponse({ ok: false, error: String(err?.message || err) }));
+    askBoth(message.text, message.pageTitle, message.pageUrl)
+      .then(results => sendResponse({ ok: results.some(r => r.ok !== false), results }))
+      .catch(err => sendResponse({ ok: false, error: String(err?.message || err) }));
     return true;
   }
 
@@ -247,22 +260,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 chrome.contextMenus.onClicked.addListener((info, tab) => {
   if (!info.selectionText) return;
   if (info.menuItemId === ASK_MENU_ID) {
-    askBoth(info.selectionText, tab?.title, tab?.url).then(async results => {
-      const gemini = results.find(r => r.provider === "gemini");
-      const chatgpt = results.find(r => r.provider === "chatgpt");
-      if (gemini?.ok) {
-        try {
-          const { geminiModel = "" } = await chrome.storage.local.get({ geminiModel: "" });
-          await sendToTelegram(`✨ Gemini (${geminiModel || "model"})\n\n${gemini.answer}`);
-        } catch (error) { console.error("Gemini → Telegram:", error); }
-      }
-      if (!gemini?.ok && !chatgpt?.ok) await flashTelegramMenu(`❌ ${gemini?.error || chatgpt?.error || "Không xử lý được"}`, 4500);
-      else if (!gemini?.ok) await flashTelegramMenu(`⚠ Gemini lỗi: ${gemini.error}`, 4500);
-      else await flashTelegramMenu("✅ Đã gửi yêu cầu ChatGPT + Gemini", 2500);
-    }).catch(async error => {
-      console.error("Hỏi ChatGPT + Gemini:", error);
-      await flashTelegramMenu(`❌ ${error?.message || error}`, 4500);
-    });
+    // The context-menu click is the single source of truth for starting both providers.
+    askBoth(info.selectionText, tab?.title, tab?.url)
+      .then(results => {
+        const gemini = results.find(r => r.provider === "gemini");
+        if (!gemini?.ok) console.error("Gemini:", gemini?.error);
+        if (gemini?.telegramSent === false) console.error("Gemini → Telegram:", gemini.telegramError);
+        if (gemini?.ok) console.log("Gemini completed and Telegram delivery attempted.");
+      })
+      .catch(console.error);
     return;
   }
   if (info.menuItemId === TELEGRAM_MENU_ID) {
