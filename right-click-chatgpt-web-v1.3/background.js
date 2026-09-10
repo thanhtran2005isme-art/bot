@@ -61,7 +61,9 @@ async function sendToChatGPT(text, pageTitle, pageUrl) {
       try {
         await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["chatgpt.js"] });
         await chrome.tabs.sendMessage(tab.id, { type: "CHECK_PENDING_PROMPT" });
-      } catch (_) {}
+      } catch (error) {
+        return { ok: false, error: `Không kết nối được ChatGPT Web: ${error?.message || error}` };
+      }
     }
   } else {
     tab = await chrome.tabs.create({ url: CHATGPT_URL, active: true });
@@ -113,11 +115,18 @@ async function geminiListModels(apiKey) {
 }
 
 async function geminiRequest(apiKey, model, prompt) {
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+  const key = String(apiKey || "").trim();
+  const modelName = String(model || "").trim().replace(/^models\//, "");
+  const textPrompt = String(prompt || "").trim();
+  if (!key) throw new Error("Chưa nhập Gemini API Key.");
+  if (!modelName) throw new Error("Chưa chọn Gemini model.");
+  if (!textPrompt) throw new Error("Không có nội dung để hỏi Gemini.");
+
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modelName)}:generateContent?key=${encodeURIComponent(key)}`;
   const response = await fetch(endpoint, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: prompt }] }] })
+    body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: textPrompt }] }] })
   });
   let data;
   try { data = await response.json(); } catch (_) { throw new Error(`Gemini trả về HTTP ${response.status}`); }
@@ -127,12 +136,10 @@ async function geminiRequest(apiKey, model, prompt) {
   return text;
 }
 
-async function askGemini(text) {
-  const { geminiApiKey = "", geminiModel = "" } = await chrome.storage.local.get({ geminiApiKey: "", geminiModel: "" });
-  const apiKey = geminiApiKey.trim();
-  const model = geminiModel.trim();
-  if (!apiKey) throw new Error("Chưa nhập Gemini API Key.");
-  if (!model) throw new Error("Chưa chọn Gemini model.");
+async function askGemini(text, apiKeyOverride = "", modelOverride = "") {
+  const stored = await chrome.storage.local.get({ geminiApiKey: "", geminiModel: "" });
+  const apiKey = String(apiKeyOverride || stored.geminiApiKey || "").trim();
+  const model = String(modelOverride || stored.geminiModel || "").trim();
   return geminiRequest(apiKey, model, String(text || "").trim());
 }
 
@@ -223,7 +230,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message?.type === "TEST_GEMINI") {
-    askGemini("Trả lời ngắn gọn: Gemini API đang hoạt động tốt.").then(answer => sendResponse({ ok: true, answer })).catch(err => sendResponse({ ok: false, error: String(err?.message || err) }));
+    const apiKey = String(message.apiKey || "").trim();
+    const model = String(message.model || "").trim();
+    askGemini("Trả lời ngắn gọn: Gemini API đang hoạt động tốt.", apiKey, model)
+      .then(answer => sendResponse({ ok: true, answer }))
+      .catch(err => sendResponse({ ok: false, error: String(err?.message || err) }));
     return true;
   }
 
@@ -236,7 +247,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 chrome.contextMenus.onClicked.addListener((info, tab) => {
   if (!info.selectionText) return;
   if (info.menuItemId === ASK_MENU_ID) {
-    askBoth(info.selectionText, tab?.title, tab?.url).catch(console.error);
+    askBoth(info.selectionText, tab?.title, tab?.url).then(async results => {
+      const gemini = results.find(r => r.provider === "gemini");
+      const chatgpt = results.find(r => r.provider === "chatgpt");
+      if (gemini?.ok) {
+        try {
+          const { geminiModel = "" } = await chrome.storage.local.get({ geminiModel: "" });
+          await sendToTelegram(`✨ Gemini (${geminiModel || "model"})\n\n${gemini.answer}`);
+        } catch (error) { console.error("Gemini → Telegram:", error); }
+      }
+      if (!gemini?.ok && !chatgpt?.ok) await flashTelegramMenu(`❌ ${gemini?.error || chatgpt?.error || "Không xử lý được"}`, 4500);
+      else if (!gemini?.ok) await flashTelegramMenu(`⚠ Gemini lỗi: ${gemini.error}`, 4500);
+      else await flashTelegramMenu("✅ Đã gửi yêu cầu ChatGPT + Gemini", 2500);
+    }).catch(async error => {
+      console.error("Hỏi ChatGPT + Gemini:", error);
+      await flashTelegramMenu(`❌ ${error?.message || error}`, 4500);
+    });
     return;
   }
   if (info.menuItemId === TELEGRAM_MENU_ID) {
