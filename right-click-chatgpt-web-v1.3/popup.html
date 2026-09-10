@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ChatGPT Web + Telegram</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body { font-family: system-ui, sans-serif; width: 340px; padding: 14px; margin: 0; }
+    h1 { font-size: 16px; margin: 0 0 12px; }
+    h2 { font-size: 14px; margin: 18px 0 8px; }
+    label.option { display: flex; gap: 8px; align-items: flex-start; margin: 10px 0; font-size: 13px; }
+    label.field { display: block; font-size: 12px; margin: 9px 0; }
+    input[type="text"], input[type="password"] { box-sizing: border-box; width: 100%; padding: 8px; margin-top: 4px; border: 1px solid #8887; border-radius: 7px; background: transparent; }
+    button { padding: 8px 10px; border: 1px solid #8887; border-radius: 7px; cursor: pointer; }
+    .buttons { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
+    #status { font-size: 12px; min-height: 18px; margin-top: 8px; }
+    p { font-size: 12px; line-height: 1.45; opacity: .8; }
+    .divider { border-top: 1px solid #8885; margin-top: 14px; }
+  </style>
+</head>
+<body>
+  <h1>Right Click → ChatGPT + Telegram</h1>
+
+  <label class="option"><input id="autoSend" type="checkbox"> <span>Tự bấm gửi sau khi đưa nội dung vào ChatGPT</span></label>
+  <label class="option"><input id="includeSource" type="checkbox"> <span>Kèm tiêu đề + URL trang nguồn khi hỏi ChatGPT</span></label>
+
+  <div class="divider"></div>
+  <h2>Telegram</h2>
+  <label class="field">Bot Token
+    <input id="telegramBotToken" type="password" autocomplete="off" placeholder="123456789:AA..." />
+  </label>
+  <label class="field">Chat ID
+    <input id="telegramChatId" type="text" autocomplete="off" placeholder="123456789 hoặc -100..." />
+  </label>
+  <div class="buttons">
+    <button id="saveTelegram" type="button">Lưu</button>
+    <button id="testTelegram" type="button">Gửi thử</button>
+  </div>
+  <div id="status"></div>
+
+  <p><b>Cách dùng:</b> bôi đen nội dung trên web rồi chuột phải 1 lần để hỏi ChatGPT. Khi ChatGPT trả lời, bôi đen phần muốn gửi → chuột phải → <b>Gửi đoạn đã chọn → Telegram</b>.</p>
+  <p>Bot Token chỉ được lưu trong bộ nhớ local của extension, không đưa vào trang web.</p>
+
+  <script src="popup.js"></script>
+</body>
+</html>
