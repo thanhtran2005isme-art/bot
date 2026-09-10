@@ -193,7 +193,6 @@ async function askBoth(text, pageTitle, pageUrl) {
   const settings = await chrome.storage.local.get({ enableGemini: true, enableChatGPT: true, parallelMode: true });
   const jobs = [];
 
-  // Both providers start immediately and independently.
   if (settings.enableChatGPT) {
     jobs.push(
       sendToChatGPT(text, pageTitle, pageUrl)
@@ -246,7 +245,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const apiKey = String(message.apiKey || "").trim();
     const model = String(message.model || "").trim();
     askGemini("Trả lời ngắn gọn: Gemini API đang hoạt động tốt.", apiKey, model)
-      .then(answer => sendResponse({ ok: true, answer }))
+      .then(async answer => {
+        let telegramSent = false;
+        let telegramError = "";
+        try {
+          await sendToTelegram(`✨ Gemini Test (${model || "model"})\n\n${answer}`);
+          telegramSent = true;
+        } catch (error) {
+          telegramError = String(error?.message || error);
+        }
+        sendResponse({ ok: true, answer, telegramSent, telegramError });
+      })
       .catch(err => sendResponse({ ok: false, error: String(err?.message || err) }));
     return true;
   }
@@ -260,7 +269,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 chrome.contextMenus.onClicked.addListener((info, tab) => {
   if (!info.selectionText) return;
   if (info.menuItemId === ASK_MENU_ID) {
-    // The context-menu click is the single source of truth for starting both providers.
     askBoth(info.selectionText, tab?.title, tab?.url)
       .then(results => {
         const gemini = results.find(r => r.provider === "gemini");
