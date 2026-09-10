@@ -260,7 +260,7 @@ testGemini.addEventListener("click", async () => {
   }
 
   testGemini.disabled = true;
-  showStatus("Đang kiểm tra Gemini…");
+  showStatus("Đang kiểm tra Gemini và gửi kết quả sang Telegram…");
   try {
     if (loadingModels || !selectedGeminiModel || !availableModels.some(m => m.name === selectedGeminiModel)) {
       const ok = await loadGeminiModels(key, { silent: true, preferredModel: selectedGeminiModel });
@@ -272,8 +272,17 @@ testGemini.addEventListener("click", async () => {
       apiKey: key,
       model: selectedGeminiModel
     });
-    if (result?.ok) showStatus(`✅ Gemini hoạt động với ${selectedGeminiModel}.`);
-    else showStatus(result?.error || "Gemini API lỗi.", false);
+
+    if (!result?.ok) {
+      showStatus(result?.error || "Gemini API lỗi.", false);
+      return;
+    }
+
+    if (result.telegramSent) {
+      showStatus(`✅ Gemini hoạt động với ${selectedGeminiModel} và đã gửi kết quả test về Telegram.`);
+    } else {
+      showStatus(`⚠ Gemini hoạt động với ${selectedGeminiModel}, nhưng Telegram chưa nhận: ${result.telegramError || "lỗi không xác định"}`, false);
+    }
   } catch (err) {
     showStatus(String(err?.message || err), false);
   } finally {
