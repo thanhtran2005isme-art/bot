@@ -1,10 +1,14 @@
 (() => {
-  if (globalThis.__RIGHT_CLICK_CHATGPT_WEB_V13__) return;
-  globalThis.__RIGHT_CLICK_CHATGPT_WEB_V13__ = true;
+  if (globalThis.__RIGHT_CLICK_CHATGPT_WEB_V14__) return;
+  globalThis.__RIGHT_CLICK_CHATGPT_WEB_V14__ = true;
 
   let busy = false;
   let lastAssistant = null;
-  let sendButton = null;
+  let lastSentAnswer = "";
+  let stableTimer = null;
+  let lastObservedText = "";
+  let lastChangeAt = 0;
+  let answerWatchStartedAt = 0;
 
   const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -70,6 +74,9 @@
       if (!composer) return;
       fillComposer(composer, pendingChatGPTPrompt.text);
       await chrome.storage.local.remove("pendingChatGPTPrompt");
+      lastObservedText = "";
+      lastChangeAt = Date.now();
+      answerWatchStartedAt = Date.now();
       if (pendingChatGPTPrompt.autoSend) await submit(composer);
     } finally { busy = false; }
   }
@@ -91,68 +98,72 @@
   }
 
   function cleanAnswerText(el) {
-    // innerText gives a human-readable version and generally excludes collapsed DOM content.
     let text = (el.innerText || el.textContent || "").trim();
     text = text.replace(/\n{3,}/g, "\n\n").trim();
     return text;
   }
 
-  function makeButton() {
-    const b = document.createElement("button");
-    b.type = "button";
-    b.textContent = "📤 Gửi câu trả lời → Telegram";
-    Object.assign(b.style, {
-      position: "fixed",
-      right: "24px",
-      bottom: "88px",
-      zIndex: "2147483647",
-      padding: "9px 13px",
-      border: "1px solid rgba(255,255,255,.18)",
-      borderRadius: "10px",
-      background: "#111827",
-      color: "white",
-      fontSize: "13px",
-      fontWeight: "600",
-      cursor: "pointer",
-      boxShadow: "0 4px 18px rgba(0,0,0,.35)",
-      opacity: ".94"
+  function isGenerating() {
+    const stopSelectors = [
+      'button[aria-label*="Stop"]',
+      'button[aria-label*="Dừng"]',
+      '[data-testid="stop-button"]'
+    ];
+    return stopSelectors.some(selector => {
+      const el = document.querySelector(selector);
+      return !!el && !el.disabled && el.offsetParent !== null;
     });
-    b.title = "Gửi câu trả lời ChatGPT cuối cùng sang Telegram";
-    b.addEventListener("click", async (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      const nodes = assistantNodes();
-      const target = nodes[nodes.length - 1] || lastAssistant;
-      if (!target) { b.textContent = "❌ Chưa thấy câu trả lời"; setTimeout(() => b.textContent = "📤 Gửi câu trả lời → Telegram", 1800); return; }
-      const text = cleanAnswerText(target);
-      if (!text) { b.textContent = "❌ Câu trả lời trống"; setTimeout(() => b.textContent = "📤 Gửi câu trả lời → Telegram", 1800); return; }
-      b.disabled = true;
-      b.textContent = "⏳ Đang gửi…";
-      try {
-        const result = await chrome.runtime.sendMessage({ type: "SEND_CHATGPT_ANSWER", text });
-        if (result?.ok) {
-          b.textContent = "✅ Đã gửi Telegram";
-        } else {
-          b.textContent = "❌ " + (result?.error || "Gửi lỗi");
-        }
-      } catch (err) {
-        b.textContent = "❌ " + String(err?.message || err);
-      } finally {
-        setTimeout(() => { b.textContent = "📤 Gửi câu trả lời → Telegram"; b.disabled = false; }, 2200);
-      }
-    }, true);
-    return b;
   }
 
-  function updateAssistantButton() {
-    const nodes = assistantNodes();
-    if (nodes.length) {
-      lastAssistant = nodes[nodes.length - 1];
-      if (!sendButton) {
-        sendButton = makeButton();
-        document.documentElement.appendChild(sendButton);
+  async function sendLatestAnswer(text) {
+    const clean = String(text || "").trim();
+    if (!clean || clean === lastSentAnswer) return;
+    try {
+      const result = await chrome.runtime.sendMessage({ type: "SEND_CHATGPT_ANSWER", text: clean });
+      if (result?.ok) {
+        lastSentAnswer = clean;
+        console.log("[Right Click ChatGPT] Đã tự gửi câu trả lời sang Telegram.");
+      } else {
+        console.error("[Right Click ChatGPT] Gửi Telegram lỗi:", result?.error);
       }
+    } catch (err) {
+      console.error("[Right Click ChatGPT] Không thể gửi Telegram:", err);
     }
+  }
+
+  function watchLatestAssistant() {
+    const nodes = assistantNodes();
+    if (!nodes.length) return;
+
+    const target = nodes[nodes.length - 1];
+    lastAssistant = target;
+    const text = cleanAnswerText(target);
+    if (!text) return;
+
+    if (text !== lastObservedText) {
+      lastObservedText = text;
+      lastChangeAt = Date.now();
+      answerWatchStartedAt = answerWatchStartedAt || Date.now();
+      return;
+    }
+
+    if (isGenerating()) return;
+
+    // Chờ nội dung ổn định để tránh gửi giữa lúc ChatGPT đang stream.
+    const stableFor = Date.now() - lastChangeAt;
+    const watchedFor = Date.now() - answerWatchStartedAt;
+    if (stableFor < 1200 || watchedFor < 1200) return;
+
+    if (stableTimer) return;
+    stableTimer = setTimeout(async () => {
+      stableTimer = null;
+      const currentNodes = assistantNodes();
+      const current = currentNodes[currentNodes.length - 1];
+      const currentText = current ? cleanAnswerText(current) : "";
+      if (!currentText || currentText !== lastObservedText) return;
+      if (isGenerating()) return;
+      await sendLatestAnswer(currentText);
+    }, 300);
   }
 
   chrome.runtime.onMessage.addListener(message => {
@@ -160,13 +171,15 @@
   });
 
   processPending();
-  updateAssistantButton();
 
   const observer = new MutationObserver(() => {
+    watchLatestAssistant();
     chrome.storage.local.get("pendingChatGPTPrompt").then(({ pendingChatGPTPrompt }) => {
       if (pendingChatGPTPrompt?.text) processPending();
     });
-    updateAssistantButton();
   });
-  observer.observe(document.documentElement, { childList: true, subtree: true });
+  observer.observe(document.documentElement, { childList: true, subtree: true, characterData: true });
+
+  // Fallback: kiểm tra định kỳ vì một số thay đổi giao diện không luôn phát mutation như mong đợi.
+  setInterval(watchLatestAssistant, 500);
 })();
