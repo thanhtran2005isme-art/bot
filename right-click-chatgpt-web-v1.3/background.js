@@ -69,7 +69,7 @@ async function waitForTabComplete(tabId, timeoutMs = 15000) {
 async function sendPendingToChatGPTTab(tabId) {
   await waitForTabComplete(tabId);
 
-  for (let attempt = 0; attempt < 4; attempt++) {
+  for (let attempt = 0; attempt < 5; attempt++) {
     try {
       await chrome.tabs.sendMessage(tabId, { type: "CHECK_PENDING_PROMPT" });
       return { ok: true };
@@ -79,21 +79,21 @@ async function sendPendingToChatGPTTab(tabId) {
         await chrome.tabs.sendMessage(tabId, { type: "CHECK_PENDING_PROMPT" });
         return { ok: true };
       } catch (error) {
-        if (attempt === 3) return { ok: false, error: `Không kết nối được ChatGPT Web: ${error?.message || error}` };
-        await new Promise(resolve => setTimeout(resolve, 700));
+        if (attempt === 4) return { ok: false, error: `Không kết nối được ChatGPT Web: ${error?.message || error}` };
+        await new Promise(resolve => setTimeout(resolve, 800));
       }
     }
   }
   return { ok: false, error: "Không thể gửi prompt tới ChatGPT Web." };
 }
 
-async function sendToChatGPT(text, pageTitle, pageUrl) {
+async function sendToChatGPT(text, pageTitle, pageUrl, forceAutoSend = false) {
   const settings = await chrome.storage.local.get({ autoSend: true, includeSource: false });
   let prompt = String(text || "").trim();
   if (!prompt) return { ok: false, error: "Không có văn bản được chọn" };
   if (settings.includeSource && pageUrl) prompt += `\n\nNguồn: ${pageTitle || "Trang web"}\n${pageUrl}`;
 
-  await chrome.storage.local.set({ pendingChatGPTPrompt: { text: prompt, createdAt: Date.now(), autoSend: settings.autoSend } });
+  await chrome.storage.local.set({ pendingChatGPTPrompt: { text: prompt, createdAt: Date.now(), autoSend: forceAutoSend ? true : settings.autoSend } });
 
   const tabs = await chrome.tabs.query({});
   const chatTabs = tabs.filter(tab => tab.id && isChatGPTUrl(tab.url));
@@ -230,8 +230,6 @@ function notifyError(label, error) {
 }
 
 async function askBoth(text, pageTitle, pageUrl) {
-  // The context-menu action is explicitly a dual-provider action.
-  // It must not be disabled by stale enableGemini/enableChatGPT values in storage.
   const geminiJob = askGemini(text)
     .then(async answer => {
       const { geminiModel = "" } = await chrome.storage.local.get({ geminiModel: "" });
@@ -244,11 +242,10 @@ async function askBoth(text, pageTitle, pageUrl) {
     })
     .catch(error => ({ provider: "gemini", ok: false, error: String(error?.message || error) }));
 
-  const chatgptJob = sendToChatGPT(text, pageTitle, pageUrl)
+  const chatgptJob = sendToChatGPT(text, pageTitle, pageUrl, true)
     .then(result => ({ provider: "chatgpt", ...result }))
     .catch(error => ({ provider: "chatgpt", ok: false, error: String(error?.message || error) }));
 
-  // Start both immediately; neither awaits the other.
   return Promise.all([chatgptJob, geminiJob]);
 }
 
@@ -313,9 +310,7 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
     return;
   }
   if (info.menuItemId === TELEGRAM_MENU_ID) {
-    sendToTelegram(info.selectionText).then(() => {
-      try { flashTelegramMenu("✅ Đã gửi sang Telegram"); } catch (_) {}
-    }).catch(async err => {
+    sendToTelegram(info.selectionText).then(() => flashTelegramMenu("✅ Đã gửi sang Telegram")).catch(async err => {
       console.error(err);
       await flashTelegramMenu("❌ Gửi lỗi – mở extension để kiểm tra", 3500);
     });
