@@ -14,8 +14,10 @@
     input[type="text"], input[type="password"] { box-sizing: border-box; width: 100%; padding: 8px; margin-top: 4px; border: 1px solid #8887; border-radius: 7px; background: transparent; }
     select { box-sizing: border-box; width: 100%; padding: 8px; margin-top: 4px; border: 1px solid #8887; border-radius: 7px; background: transparent; color: inherit; }
     button { padding: 8px 10px; border: 1px solid #8887; border-radius: 7px; cursor: pointer; }
+    button:disabled { opacity: .55; cursor: wait; }
     .buttons { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
     #status { font-size: 12px; min-height: 18px; margin-top: 8px; }
+    #geminiModelStatus { font-size: 11px; opacity: .75; margin-top: 5px; min-height: 15px; }
     p { font-size: 12px; line-height: 1.45; opacity: .8; }
     .divider { border-top: 1px solid #8885; margin-top: 14px; }
   </style>
@@ -35,13 +37,11 @@
     <input id="geminiApiKey" type="password" autocomplete="off" placeholder="AIza..." />
   </label>
   <label class="field">Model
-    <select id="geminiModel">
-      <option value="gemini-2.5-flash">gemini-2.5-flash</option>
-      <option value="gemini-2.5-pro">gemini-2.5-pro</option>
-      <option value="gemini-2.0-flash">gemini-2.0-flash</option>
-      <option value="gemini-2.0-flash-lite">gemini-2.0-flash-lite</option>
+    <select id="geminiModel" disabled>
+      <option value="">Nhập API Key để tải model...</option>
     </select>
   </label>
+  <div id="geminiModelStatus"></div>
   <div class="buttons">
     <button id="saveGemini" type="button">Lưu Gemini</button>
     <button id="testGemini" type="button">Test Gemini</button>
@@ -61,7 +61,7 @@
   </div>
   <div id="status"></div>
 
-  <p><b>Cách dùng:</b> bôi đen câu hỏi → chuột phải → <b>Hỏi ChatGPT + Gemini</b>. Nếu bật song song, Gemini được gọi API ngay đồng thời với việc mở ChatGPT Web. Gemini gửi thẳng kết quả sang Telegram; ChatGPT tự gửi khi trả lời xong.</p>
+  <p><b>Cách dùng:</b> bôi đen câu hỏi → chuột phải → <b>Hỏi ChatGPT + Gemini</b>. Khi nhập API Key, extension tự gọi Gemini API để lấy danh sách model mà key đó được phép dùng và chỉ hiển thị model hỗ trợ <code>generateContent</code>. cite không dùng trong giao diện này</p>
   <p>API Key chỉ được lưu trong bộ nhớ local của extension.</p>
 
   <script src="popup.js"></script>
