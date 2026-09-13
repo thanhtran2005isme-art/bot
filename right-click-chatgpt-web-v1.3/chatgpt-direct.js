@@ -3,6 +3,7 @@
   globalThis.__RCGPT_DIRECT__ = true;
 
   const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+  const normalize = text => String(text || '').replace(/\s+/g, ' ').trim();
 
   function editor() {
     return document.querySelector('#prompt-textarea') ||
@@ -15,6 +16,10 @@
   function valueOf(el) {
     if (!el) return '';
     return ('value' in el ? String(el.value || '') : String(el.innerText || el.textContent || '')).trim();
+  }
+
+  function sameText(a, b) {
+    return normalize(a) === normalize(b);
   }
 
   function fireInput(el, text) {
@@ -65,7 +70,7 @@
       inserted = document.execCommand('insertText', false, text);
     } catch (_) {}
 
-    if (!inserted || valueOf(el) !== text.trim()) {
+    if (!inserted || !sameText(valueOf(el), text)) {
       el.replaceChildren();
       const p = document.createElement('p');
       p.textContent = text;
@@ -101,11 +106,11 @@
     );
   }
 
-  async function confirmedSent(el) {
+  async function confirmedSent() {
     for (let i = 0; i < 20; i++) {
       if (isGenerating()) return true;
       const current = editor();
-      if (!current || valueOf(current) === '') return true;
+      if (!current || normalize(valueOf(current)) === '') return true;
       await sleep(50);
     }
     return false;
@@ -143,10 +148,10 @@
 
     fill(el, text);
 
-    for (let i = 0; i < 20 && valueOf(el) !== text; i++) {
+    for (let i = 0; i < 20 && !sameText(valueOf(el), text); i++) {
       await sleep(25);
     }
-    if (valueOf(el) !== text) {
+    if (!sameText(valueOf(el), text)) {
       return { ok: false, error: 'ChatGPT chưa nhận đủ nội dung.' };
     }
 
@@ -158,12 +163,12 @@
       const button = sendButton(el);
       if (button) {
         button.click();
-        if (await confirmedSent(el)) return { ok: true, sent: true };
+        if (await confirmedSent()) return { ok: true, sent: true };
       }
 
       if (attempt === 4 || attempt === 12 || attempt === 22) {
         pressEnter(el);
-        if (await confirmedSent(el)) return { ok: true, sent: true };
+        if (await confirmedSent()) return { ok: true, sent: true };
       }
 
       await sleep(attempt < 10 ? 50 : 100);
