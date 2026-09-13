@@ -90,7 +90,7 @@ function makePhonePrompt(text) {
 }
 
 async function readPhoneAndSend() {
-  if (phoneBusy) return;
+  if (phoneBusy) return { ok: false, error: 'Đang xử lý lần đọc trước.' };
   phoneBusy = true;
   await setActionState('…', 'Đang đọc màn hình Android…');
 
@@ -125,12 +125,14 @@ async function readPhoneAndSend() {
     if (!result?.ok) throw new Error(result?.error || 'Không gửi được sang ChatGPT.');
 
     await setActionState('✓', 'Đã gửi màn hình Android sang ChatGPT', 1400);
+    return { ok: true, items: data.items || 0 };
   } catch (error) {
     const message = error?.name === 'AbortError'
       ? 'Bridge/ADB phản hồi quá lâu.'
       : String(error?.message || error);
     console.error('[Android → ChatGPT]', message);
     await setActionState('!', `Lỗi: ${message}`, 3500);
+    return { ok: false, error: message };
   } finally {
     clearTimeout(timeout);
     phoneBusy = false;
@@ -142,10 +144,17 @@ chrome.action.onClicked.addListener(() => {
 });
 
 chrome.runtime.onMessage.addListener((message, sender, reply) => {
-  if (message?.type !== 'ASK_CHATGPT_WEB') return;
+  if (message?.type === 'ASK_CHATGPT_WEB') {
+    sendToChatGPT(message.text)
+      .then(reply)
+      .catch(error => reply({ ok: false, error: String(error?.message || error) }));
+    return true;
+  }
 
-  sendToChatGPT(message.text)
-    .then(reply)
-    .catch(error => reply({ ok: false, error: String(error?.message || error) }));
-  return true;
+  if (message?.type === 'READ_ANDROID_SCREEN') {
+    readPhoneAndSend()
+      .then(reply)
+      .catch(error => reply({ ok: false, error: String(error?.message || error) }));
+    return true;
+  }
 });
