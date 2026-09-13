@@ -1,29 +1,27 @@
-# Right Click → ChatGPT Web + Telegram v1.3
+# Right Click → ChatGPT Web
 
-Không cần OpenAI API key.
+Chrome Extension Manifest V3 để gửi nhanh phần văn bản đang bôi đen sang ChatGPT Web.
 
-## Luồng sử dụng
-1. Bôi đen nội dung trên Facebook / web.
-2. Chuột phải một lần → extension tự mở ChatGPT Web và đưa câu hỏi vào.
-3. ChatGPT trả lời.
-4. Trên trang ChatGPT sẽ có nút **📤 Gửi câu trả lời → Telegram**.
-5. Bấm nút đó **một lần**. Extension lấy câu trả lời cuối cùng đang hiển thị và gửi sang Telegram.
+## Cách dùng
 
-Nút này là thao tác chủ động của người dùng; extension không tự động gửi câu trả lời.
+1. Cài extension ở chế độ **Load unpacked**.
+2. Đăng nhập ChatGPT tại `https://chatgpt.com/`.
+3. Bôi đen văn bản trên bất kỳ trang web nào.
+4. Chuột phải và chọn **Hỏi ChatGPT**.
+5. Extension sẽ mở hoặc chuyển sang tab ChatGPT, điền nội dung đã chọn và tự gửi.
 
-## Cài đặt
-1. Giải nén ZIP.
-2. Mở `chrome://extensions`.
-3. Bật **Developer mode**.
-4. Xóa bản cũ hoặc Reload.
-5. `Load unpacked` → chọn thư mục `right-click-chatgpt-web-v1.3`.
-6. Trong **Site access**, chọn **On all sites**.
-7. Đăng nhập ChatGPT tại `https://chatgpt.com`.
+## Thành phần chính
 
-## Telegram
-Trong popup extension nhập Bot Token + Chat ID, bấm Lưu rồi Gửi thử. Nếu Gửi thử thành công thì phần Telegram đã cấu hình đúng.
+- `manifest.json`: cấu hình extension.
+- `background-direct-v2.js`: tạo context menu và chuyển nội dung sang ChatGPT.
+- `chatgpt-direct.js`: điền prompt và bấm gửi trên ChatGPT Web.
+- `popup.html`: hướng dẫn sử dụng ngắn gọn.
 
-## Lưu ý
-- Không cần OpenAI API key.
-- Token Telegram được lưu trong `chrome.storage.local` của extension.
-- Nút gửi lấy câu trả lời cuối cùng đang hiển thị trên trang ChatGPT. Nếu giao diện ChatGPT thay đổi lớn, selector có thể cần cập nhật.
+## Quyền sử dụng
+
+Extension chỉ giữ các quyền cần thiết để mở tab, chèn content script và tạo menu chuột phải. Host permissions chỉ còn:
+
+- `https://chatgpt.com/*`
+- `https://chat.openai.com/*`
+
+Không còn Gemini API, Gemini API Key, Telegram Bot Token, Telegram Chat ID hoặc bất kỳ logic gửi dữ liệu sang Telegram nào.
