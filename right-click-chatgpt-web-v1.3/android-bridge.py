@@ -142,14 +142,27 @@ def clean_value(value):
     return " ".join(value.split()).strip()
 
 
-def extract_text_from_xml(xml_text):
-    start = xml_text.find("<?xml")
-    if start < 0:
-        start = xml_text.find("<hierarchy")
-    if start < 0:
+def isolate_ui_xml(raw_text):
+    raw_text = str(raw_text or "")
+
+    hierarchy_start = raw_text.find("<hierarchy")
+    if hierarchy_start < 0:
         raise RuntimeError("ADB không trả về UI XML.")
-    if start > 0:
-        xml_text = xml_text[start:]
+
+    xml_decl = raw_text.rfind("<?xml", 0, hierarchy_start + 1)
+    start = xml_decl if xml_decl >= 0 else hierarchy_start
+
+    end_tag = "</hierarchy>"
+    end = raw_text.find(end_tag, hierarchy_start)
+    if end < 0:
+        raise RuntimeError("UIAutomator trả về XML chưa hoàn chỉnh.")
+
+    end += len(end_tag)
+    return raw_text[start:end].strip()
+
+
+def extract_text_from_xml(xml_text):
+    xml_text = isolate_ui_xml(xml_text)
 
     try:
         root = ET.fromstring(xml_text)
@@ -178,14 +191,16 @@ def dump_ui_xml(base):
     # Fast path: one ADB process, no temporary file/pull.
     try:
         direct = run_process(base + ["exec-out", "uiautomator", "dump", "/dev/tty"], timeout=6)
-        if "<hierarchy" in direct:
-            return direct
+        if "<hierarchy" in direct and "</hierarchy>" in direct:
+            # Validate/crop here so extra UIAutomator status text cannot break parsing.
+            return isolate_ui_xml(direct)
     except Exception:
         pass
 
-    # Compatibility fallback for devices where /dev/tty dump is unsupported.
+    # Compatibility fallback for devices where /dev/tty dump is unsupported or noisy.
     run_process(base + ["shell", "uiautomator", "dump", "/sdcard/window.xml"], timeout=8)
-    return run_process(base + ["exec-out", "cat", "/sdcard/window.xml"], timeout=4)
+    fallback = run_process(base + ["exec-out", "cat", "/sdcard/window.xml"], timeout=4)
+    return isolate_ui_xml(fallback)
 
 
 def read_android_screen_text():
@@ -219,7 +234,7 @@ def read_android_screen_text():
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "AndroidTextBridge/1.1"
+    server_version = "AndroidTextBridge/1.2"
 
     def send_json(self, status, payload):
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
