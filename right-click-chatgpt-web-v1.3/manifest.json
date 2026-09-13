@@ -1,12 +1,13 @@
 {
   "manifest_version": 3,
   "name": "Right Click → ChatGPT Web",
-  "version": "1.9.0",
-  "description": "Bôi đen văn bản, chuột phải và gửi trực tiếp sang ChatGPT Web.",
+  "version": "2.0.0",
+  "description": "Gửi văn bản bôi đen hoặc text trên màn hình Android sang ChatGPT Web.",
   "permissions": ["tabs", "scripting", "contextMenus"],
   "host_permissions": [
     "https://chatgpt.com/*",
-    "https://chat.openai.com/*"
+    "https://chat.openai.com/*",
+    "http://127.0.0.1:8765/*"
   ],
   "background": {
     "service_worker": "background-direct-v2.js"
