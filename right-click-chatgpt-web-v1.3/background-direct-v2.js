@@ -1,11 +1,23 @@
 const CHATGPT_URL = 'https://chatgpt.com/';
+const BRIDGE_URL = 'http://127.0.0.1:8765/screen-text';
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 let lastPrompt = '';
 let lastPromptAt = 0;
+let phoneBusy = false;
 
-function isChatGPT(url) {
-  return /^https:\/\/(chatgpt\.com|chat\.openai\.com)(\/|$)/i.test(String(url || ''));
+async function setActionState(text, title, clearAfter = 0) {
+  try {
+    await chrome.action.setBadgeText({ text });
+    await chrome.action.setTitle({ title });
+  } catch (_) {}
+
+  if (clearAfter > 0) {
+    setTimeout(() => {
+      chrome.action.setBadgeText({ text: '' }).catch(() => {});
+      chrome.action.setTitle({ title: 'Đọc màn hình điện thoại → ChatGPT' }).catch(() => {});
+    }, clearAfter);
+  }
 }
 
 async function findChatGPTTab() {
@@ -66,6 +78,68 @@ async function sendToChatGPT(prompt) {
 
   return deliver(tab.id, text);
 }
+
+function makePhonePrompt(text) {
+  return [
+    'Đây là văn bản được lấy trực tiếp từ màn hình điện thoại Android.',
+    'Hãy đọc nội dung và trả lời yêu cầu hoặc câu hỏi chính trên màn hình.',
+    'Nếu là câu hỏi trắc nghiệm, chỉ trả lời đáp án đúng thật ngắn gọn.',
+    '',
+    String(text || '').trim()
+  ].join('\n');
+}
+
+async function readPhoneAndSend() {
+  if (phoneBusy) return;
+  phoneBusy = true;
+  await setActionState('…', 'Đang đọc màn hình Android…');
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
+
+  try {
+    const response = await fetch(BRIDGE_URL, {
+      method: 'GET',
+      cache: 'no-store',
+      signal: controller.signal
+    });
+
+    let data;
+    try {
+      data = await response.json();
+    } catch (_) {
+      throw new Error(`Bridge trả về dữ liệu không hợp lệ (HTTP ${response.status}).`);
+    }
+
+    if (!response.ok || !data?.ok) {
+      throw new Error(data?.error || `Bridge lỗi HTTP ${response.status}.`);
+    }
+
+    const text = String(data.text || '').trim();
+    if (!text) {
+      throw new Error('UIAutomator không tìm thấy text trên màn hình hiện tại.');
+    }
+
+    await setActionState('→', `Đã đọc ${data.items || '?'} mục text. Đang gửi ChatGPT…`);
+    const result = await sendToChatGPT(makePhonePrompt(text));
+    if (!result?.ok) throw new Error(result?.error || 'Không gửi được sang ChatGPT.');
+
+    await setActionState('✓', 'Đã gửi màn hình Android sang ChatGPT', 1400);
+  } catch (error) {
+    const message = error?.name === 'AbortError'
+      ? 'Bridge/ADB phản hồi quá lâu.'
+      : String(error?.message || error);
+    console.error('[Android → ChatGPT]', message);
+    await setActionState('!', `Lỗi: ${message}`, 3500);
+  } finally {
+    clearTimeout(timeout);
+    phoneBusy = false;
+  }
+}
+
+chrome.action.onClicked.addListener(() => {
+  readPhoneAndSend().catch(error => console.error('[Android → ChatGPT]', error));
+});
 
 chrome.runtime.onMessage.addListener((message, sender, reply) => {
   if (message?.type !== 'ASK_CHATGPT_WEB') return;
