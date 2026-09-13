@@ -40,12 +40,12 @@
     <div id="status" class="muted">Cần chạy <code>start-bridge.bat</code> trước.</div>
   </div>
 
-  <h2>Web</h2>
-  <p>Bôi đen văn bản → chuột phải → <b>Hỏi ChatGPT</b>.</p>
+  <h2>Web — tự động</h2>
+  <p><b>Bôi đen câu hỏi → nhấn chuột phải.</b> Extension tự chuyển sang ChatGPT, dán nội dung và gửi ngay. Không cần bấm thêm mục menu.</p>
 
   <h2>Android / scrcpy</h2>
-  <p>Bridge dùng ADB + UIAutomator để lấy text trực tiếp từ giao diện Android rồi gửi sang ChatGPT. scrcpy có thể mở song song nhưng không phải nguồn OCR.</p>
-  <p class="muted">Nếu app vẽ chữ bằng game/canvas hoặc chặn Accessibility/UIAutomator thì text có thể không lấy được; trường hợp đó mới cần OCR ảnh.</p>
+  <p>Bấm nút phía trên để lấy text bằng ADB + UIAutomator, sau đó extension tự chuyển sang ChatGPT, dán và bấm gửi.</p>
+  <p class="muted">Giữ ChatGPT mở sẵn và giữ <code>start-bridge.bat</code> chạy để đạt tốc độ nhanh nhất. Nếu app không expose text qua UIAutomator thì mới cần OCR ảnh.</p>
 
   <script src="popup.js"></script>
 </body>
