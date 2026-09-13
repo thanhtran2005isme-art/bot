@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Right Click → ChatGPT Web",
-  "version": "2.1.0",
-  "description": "Bôi đen rồi chuột phải để tự gửi sang ChatGPT Web, hoặc đọc text màn hình Android qua ADB.",
+  "version": "2.2.0",
+  "description": "Bôi đen rồi chuột phải để tự gửi sang ChatGPT Web; bấm icon extension để đọc màn hình Android qua ADB.",
   "permissions": ["tabs", "scripting"],
   "host_permissions": [
     "<all_urls>",
@@ -26,7 +26,6 @@
     }
   ],
   "action": {
-    "default_popup": "popup.html",
-    "default_title": "Right Click → ChatGPT"
+    "default_title": "Đọc màn hình điện thoại → ChatGPT"
   }
 }
