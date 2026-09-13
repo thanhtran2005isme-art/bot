@@ -8,28 +8,45 @@
     :root { color-scheme: light dark; }
     body {
       font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      width: 320px;
+      width: 340px;
       margin: 0;
       padding: 16px;
-      line-height: 1.5;
+      line-height: 1.45;
     }
     h1 { font-size: 17px; margin: 0 0 12px; }
-    p { font-size: 13px; margin: 8px 0; }
-    .box {
-      padding: 12px;
-      border: 1px solid #8885;
-      border-radius: 10px;
+    h2 { font-size: 14px; margin: 16px 0 8px; }
+    p { font-size: 12px; margin: 8px 0; }
+    .box { padding: 12px; border: 1px solid #8885; border-radius: 10px; }
+    button {
+      width: 100%;
+      padding: 11px 12px;
+      border: 1px solid #8887;
+      border-radius: 9px;
+      font: inherit;
+      font-weight: 700;
+      cursor: pointer;
     }
-    .ok { font-weight: 700; }
+    button:disabled { opacity: .55; cursor: wait; }
+    #status { min-height: 36px; margin-top: 9px; font-size: 12px; white-space: pre-wrap; }
+    .muted { opacity: .72; }
+    code { font-size: 11px; }
   </style>
 </head>
 <body>
   <h1>Right Click → ChatGPT</h1>
+
   <div class="box">
-    <p class="ok">✅ Chỉ sử dụng ChatGPT Web</p>
-    <p>Không dùng Gemini API và không gửi dữ liệu sang Telegram.</p>
+    <button id="readPhone" type="button">📱 Đọc màn hình điện thoại → ChatGPT</button>
+    <div id="status" class="muted">Cần chạy <code>start-bridge.bat</code> trước.</div>
   </div>
-  <p><b>Cách dùng:</b> bôi đen văn bản trên trang web → chuột phải → chọn <b>Hỏi ChatGPT</b>.</p>
-  <p>Extension sẽ mở hoặc chuyển sang tab ChatGPT, điền nội dung đã chọn và tự gửi.</p>
+
+  <h2>Web</h2>
+  <p>Bôi đen văn bản → chuột phải → <b>Hỏi ChatGPT</b>.</p>
+
+  <h2>Android / scrcpy</h2>
+  <p>Bridge dùng ADB + UIAutomator để lấy text trực tiếp từ giao diện Android rồi gửi sang ChatGPT. scrcpy có thể mở song song nhưng không phải nguồn OCR.</p>
+  <p class="muted">Nếu app vẽ chữ bằng game/canvas hoặc chặn Accessibility/UIAutomator thì text có thể không lấy được; trường hợp đó mới cần OCR ảnh.</p>
+
+  <script src="popup.js"></script>
 </body>
 </html>
