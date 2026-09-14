@@ -5,6 +5,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import xml.etree.ElementTree as ET
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -16,9 +17,13 @@ MAX_TEXT = 30000
 MIN_UI_ITEMS = 5
 MIN_UI_CHARS = 100
 SCRIPT_DIR = Path(__file__).resolve().parent
+FAST_OCR = os.environ.get("RCGPT_FAST_OCR", "1").strip().lower() not in {"0", "false", "no", "off"}
 
 _cached_adb = None
 _cached_serial = None
+_cached_tesseract = None
+_cached_ocr_language = None
+_prefer_pull_screenshot = False
 
 
 def _creationflags():
@@ -27,7 +32,7 @@ def _creationflags():
     return 0
 
 
-def run_process(args, timeout=8, label="ADB"):
+def run_process(args, timeout=8, label="process"):
     try:
         result = subprocess.run(
             args,
@@ -44,15 +49,12 @@ def run_process(args, timeout=8, label="ADB"):
 
     stdout = result.stdout.decode("utf-8", errors="replace").strip()
     stderr = result.stderr.decode("utf-8", errors="replace").strip()
-
     if result.returncode != 0:
-        detail = stderr or stdout or f"exit code {result.returncode}"
-        raise RuntimeError(detail)
-
+        raise RuntimeError(stderr or stdout or f"exit code {result.returncode}")
     return stdout
 
 
-def run_process_bytes(args, timeout=8, label="ADB"):
+def run_process_bytes(args, timeout=8, label="process"):
     try:
         result = subprocess.run(
             args,
@@ -69,10 +71,7 @@ def run_process_bytes(args, timeout=8, label="ADB"):
 
     if result.returncode != 0:
         detail = result.stderr.decode("utf-8", errors="replace").strip()
-        if not detail:
-            detail = f"exit code {result.returncode}"
-        raise RuntimeError(detail)
-
+        raise RuntimeError(detail or f"exit code {result.returncode}")
     return result.stdout
 
 
@@ -115,12 +114,11 @@ def find_adb():
         if resolved.is_file():
             _cached_adb = str(resolved)
             return _cached_adb
-
     return None
 
 
 def list_devices(adb):
-    output = run_process([adb, "devices"], timeout=4)
+    output = run_process([adb, "devices"], timeout=4, label="ADB")
     devices = []
     unauthorized = []
     offline = []
@@ -152,9 +150,7 @@ def list_devices(adb):
         return preferred
 
     if len(devices) > 1:
-        joined = ", ".join(devices)
-        raise RuntimeError(f"Có nhiều thiết bị ADB: {joined}. Hãy đặt biến ANDROID_SERIAL để chọn máy.")
-
+        raise RuntimeError(f"Có nhiều thiết bị ADB: {', '.join(devices)}. Hãy đặt ANDROID_SERIAL để chọn máy.")
     return devices[0]
 
 
@@ -171,25 +167,6 @@ def clean_value(value):
     return " ".join(value.split()).strip()
 
 
-def isolate_ui_xml(raw_text):
-    raw_text = str(raw_text or "")
-
-    hierarchy_start = raw_text.find("<hierarchy")
-    if hierarchy_start < 0:
-        raise RuntimeError("ADB không trả về UI XML.")
-
-    xml_decl = raw_text.rfind("<?xml", 0, hierarchy_start + 1)
-    start = xml_decl if xml_decl >= 0 else hierarchy_start
-
-    end_tag = "</hierarchy>"
-    end = raw_text.find(end_tag, hierarchy_start)
-    if end < 0:
-        raise RuntimeError("UIAutomator trả về XML chưa hoàn chỉnh.")
-
-    end += len(end_tag)
-    return raw_text[start:end].strip()
-
-
 def limit_text(text):
     text = str(text or "").strip()
     if len(text) > MAX_TEXT:
@@ -197,17 +174,28 @@ def limit_text(text):
     return text
 
 
-def extract_text_from_xml(xml_text):
-    xml_text = isolate_ui_xml(xml_text)
+def isolate_ui_xml(raw_text):
+    raw_text = str(raw_text or "")
+    hierarchy_start = raw_text.find("<hierarchy")
+    if hierarchy_start < 0:
+        raise RuntimeError("ADB không trả về UI XML.")
+    xml_decl = raw_text.rfind("<?xml", 0, hierarchy_start + 1)
+    start = xml_decl if xml_decl >= 0 else hierarchy_start
+    end_tag = "</hierarchy>"
+    end = raw_text.find(end_tag, hierarchy_start)
+    if end < 0:
+        raise RuntimeError("UIAutomator trả về XML chưa hoàn chỉnh.")
+    return raw_text[start:end + len(end_tag)].strip()
 
+
+def extract_text_from_xml(xml_text):
     try:
-        root = ET.fromstring(xml_text)
+        root = ET.fromstring(isolate_ui_xml(xml_text))
     except ET.ParseError as exc:
         raise RuntimeError(f"Không đọc được UI XML từ Android: {exc}")
 
     lines = []
     seen = set()
-
     for node in root.iter("node"):
         for key in ("text", "content-desc", "hint"):
             value = clean_value(node.attrib.get(key, ""))
@@ -216,22 +204,19 @@ def extract_text_from_xml(xml_text):
                 continue
             seen.add(normalized)
             lines.append(value)
-
     return limit_text("\n".join(lines)), len(lines)
 
 
 def dump_ui_xml(base):
-    # Fast path: one ADB process, no temporary file/pull.
     try:
-        direct = run_process(base + ["exec-out", "uiautomator", "dump", "/dev/tty"], timeout=6)
+        direct = run_process(base + ["exec-out", "uiautomator", "dump", "/dev/tty"], timeout=6, label="UIAutomator")
         if "<hierarchy" in direct and "</hierarchy>" in direct:
             return isolate_ui_xml(direct)
     except Exception:
         pass
 
-    # Compatibility fallback for devices where /dev/tty dump is unsupported or noisy.
-    run_process(base + ["shell", "uiautomator", "dump", "/sdcard/window.xml"], timeout=8)
-    fallback = run_process(base + ["exec-out", "cat", "/sdcard/window.xml"], timeout=4)
+    run_process(base + ["shell", "uiautomator", "dump", "/sdcard/window.xml"], timeout=8, label="UIAutomator")
+    fallback = run_process(base + ["exec-out", "cat", "/sdcard/window.xml"], timeout=4, label="ADB cat UI XML")
     return isolate_ui_xml(fallback)
 
 
@@ -240,72 +225,51 @@ def needs_ocr(text, items):
 
 
 def capture_screen_png(base):
+    global _prefer_pull_screenshot
     png_signature = b"\x89PNG\r\n\x1a\n"
     direct_error = None
 
-    # Fast path. Some ADB/device combinations prepend noise before the PNG,
-    # so accept a valid PNG signature even when it is not at byte 0.
-    try:
-        data = run_process_bytes(
-            base + ["exec-out", "screencap", "-p"],
-            timeout=8,
-            label="ADB screencap",
-        )
-        png_start = data.find(png_signature)
-        if png_start >= 0:
-            return data[png_start:]
-        direct_error = f"exec-out trả về {len(data)} bytes nhưng không có PNG signature"
-        print(f"[CẢNH BÁO screencap] {direct_error}; đang thử adb pull...", flush=True)
-    except Exception as exc:
-        direct_error = str(exc)
-        print(f"[CẢNH BÁO screencap] exec-out lỗi: {direct_error}; đang thử adb pull...", flush=True)
+    # Try the fast binary stream only until this device proves it is broken.
+    # After one invalid result we remember it and go straight to adb pull.
+    if not _prefer_pull_screenshot:
+        try:
+            data = run_process_bytes(
+                base + ["exec-out", "screencap", "-p"],
+                timeout=5,
+                label="ADB screencap",
+            )
+            png_start = data.find(png_signature)
+            if png_start >= 0:
+                return data[png_start:]
+            direct_error = f"exec-out trả về {len(data)} bytes nhưng không có PNG signature"
+            _prefer_pull_screenshot = True
+            print(f"[screencap] {direct_error}; từ lần sau bỏ qua exec-out và dùng adb pull.", flush=True)
+        except Exception as exc:
+            direct_error = str(exc)
+            _prefer_pull_screenshot = True
+            print(f"[screencap] exec-out lỗi: {direct_error}; từ lần sau dùng adb pull.", flush=True)
 
-    # Compatibility fallback: save the screenshot on Android, then pull it.
-    # This avoids broken/binary-corrupted exec-out streams on some devices.
     remote_path = "/sdcard/__rcgpt_screen.png"
     local_path = None
-
     try:
-        run_process(
-            base + ["shell", "screencap", "-p", remote_path],
-            timeout=8,
-            label="ADB screencap",
-        )
-
-        with tempfile.NamedTemporaryFile(
-            prefix="rcgpt-adb-screen-",
-            suffix=".png",
-            delete=False,
-        ) as tmp:
+        run_process(base + ["shell", "screencap", "-p", remote_path], timeout=6, label="ADB screencap")
+        with tempfile.NamedTemporaryFile(prefix="rcgpt-adb-screen-", suffix=".png", delete=False) as tmp:
             local_path = tmp.name
-
-        run_process(
-            base + ["pull", remote_path, local_path],
-            timeout=10,
-            label="ADB pull screenshot",
-        )
-
+        run_process(base + ["pull", remote_path, local_path], timeout=7, label="ADB pull screenshot")
         with open(local_path, "rb") as file:
             data = file.read()
-
         png_start = data.find(png_signature)
         if png_start < 0:
             raise RuntimeError(
                 f"Ảnh ADB pull không phải PNG hợp lệ ({len(data)} bytes). "
-                f"Lỗi đường nhanh: {direct_error or 'không xác định'}"
+                f"Lỗi đường nhanh: {direct_error or 'đã bỏ qua'}"
             )
-
         return data[png_start:]
     finally:
         try:
-            run_process(
-                base + ["shell", "rm", "-f", remote_path],
-                timeout=3,
-                label="ADB cleanup",
-            )
+            run_process(base + ["shell", "rm", "-f", remote_path], timeout=2, label="ADB cleanup")
         except Exception:
             pass
-
         if local_path:
             try:
                 os.unlink(local_path)
@@ -313,21 +277,74 @@ def capture_screen_png(base):
                 pass
 
 
-def find_powershell():
-    return shutil.which("powershell.exe") or shutil.which("powershell")
+def find_tesseract():
+    global _cached_tesseract
+    if _cached_tesseract and Path(_cached_tesseract).is_file():
+        return _cached_tesseract
+
+    candidates = []
+    env_path = os.environ.get("TESSERACT_PATH", "").strip().strip('"')
+    if env_path:
+        candidates.append(Path(env_path))
+
+    found = shutil.which("tesseract.exe") or shutil.which("tesseract")
+    if found:
+        candidates.append(Path(found))
+
+    candidates.append(SCRIPT_DIR / "tesseract.exe")
+    for key in ("ProgramFiles", "ProgramFiles(x86)"):
+        root = os.environ.get(key)
+        if root:
+            candidates.append(Path(root) / "Tesseract-OCR" / "tesseract.exe")
+
+    seen = set()
+    for candidate in candidates:
+        try:
+            resolved = candidate.expanduser().resolve()
+        except Exception:
+            resolved = candidate
+        key = str(resolved).lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        if resolved.is_file():
+            _cached_tesseract = str(resolved)
+            return _cached_tesseract
+    return None
 
 
-def ocr_png_with_windows(png_data):
-    if os.name != "nt":
-        raise RuntimeError("OCR fallback hiện dùng Windows OCR và chỉ chạy trên Windows.")
+def get_ocr_language(tesseract):
+    global _cached_ocr_language
+    if _cached_ocr_language:
+        return _cached_ocr_language
 
-    powershell = find_powershell()
-    if not powershell:
-        raise RuntimeError("Không tìm thấy Windows PowerShell.")
+    output = run_process([tesseract, "--list-langs"], timeout=4, label="Tesseract --list-langs")
+    languages = {
+        line.strip()
+        for line in output.splitlines()
+        if line.strip() and not line.lower().startswith("list of available languages")
+    }
+    if "vie" not in languages:
+        raise RuntimeError(
+            "Tesseract thiếu vie.traineddata. Hãy chạy install-vietnamese-ocr.bat một lần."
+        )
+    _cached_ocr_language = "vie+eng" if "eng" in languages else "vie"
+    print(f"[OCR] Tesseract: {tesseract}", flush=True)
+    print(f"[OCR] Language: {_cached_ocr_language} (đã cache, không kiểm tra lại mỗi lần)", flush=True)
+    return _cached_ocr_language
 
-    helper = SCRIPT_DIR / "windows-ocr.ps1"
-    if not helper.is_file():
-        raise RuntimeError("Thiếu file windows-ocr.ps1 trong thư mục extension.")
+
+def ocr_png_with_tesseract(png_data):
+    tesseract = find_tesseract()
+    if not tesseract:
+        raise RuntimeError(
+            "Không tìm thấy Tesseract OCR. Hãy chạy install-vietnamese-ocr.bat một lần."
+        )
+
+    language = get_ocr_language(tesseract)
+    psm = os.environ.get("RCGPT_TESSERACT_PSM", "6").strip()
+    if not psm.isdigit():
+        psm = "6"
 
     tmp_path = None
     try:
@@ -337,19 +354,24 @@ def ocr_png_with_windows(png_data):
 
         output = run_process(
             [
-                powershell,
-                "-NoProfile",
-                "-STA",
-                "-ExecutionPolicy",
-                "Bypass",
-                "-File",
-                str(helper),
+                tesseract,
                 tmp_path,
+                "stdout",
+                "-l",
+                language,
+                "--oem",
+                "1",
+                "--psm",
+                psm,
+                "-c",
+                "preserve_interword_spaces=1",
             ],
-            timeout=14,
-            label="Windows OCR",
+            timeout=10,
+            label="Tesseract OCR",
         )
-        return limit_text(output)
+        if not output:
+            raise RuntimeError("Tesseract không nhận ra chữ trên ảnh màn hình.")
+        return limit_text(output.replace("\f", ""))
     finally:
         if tmp_path:
             try:
@@ -361,7 +383,6 @@ def ocr_png_with_windows(png_data):
 def merge_texts(primary, secondary):
     lines = []
     seen = set()
-
     for source in (primary, secondary):
         for raw_line in str(source or "").splitlines():
             value = clean_value(raw_line)
@@ -370,8 +391,32 @@ def merge_texts(primary, secondary):
                 continue
             seen.add(key)
             lines.append(value)
-
     return limit_text("\n".join(lines)), len(lines)
+
+
+def read_fast_ocr(base, serial):
+    started = time.perf_counter()
+    capture_started = time.perf_counter()
+    png_data = capture_screen_png(base)
+    capture_ms = int((time.perf_counter() - capture_started) * 1000)
+
+    ocr_started = time.perf_counter()
+    text = ocr_png_with_tesseract(png_data)
+    ocr_ms = int((time.perf_counter() - ocr_started) * 1000)
+    total_ms = int((time.perf_counter() - started) * 1000)
+    items = len([line for line in text.splitlines() if line.strip()])
+
+    print(f"[FAST] capture={capture_ms}ms | OCR={ocr_ms}ms | total={total_ms}ms | lines={items}", flush=True)
+    return {
+        "ok": True,
+        "text": text,
+        "items": items,
+        "uiItems": 0,
+        "ocrUsed": True,
+        "method": "tesseract-fast",
+        "device": serial,
+        "timingMs": {"capture": capture_ms, "ocr": ocr_ms, "total": total_ms},
+    }
 
 
 def read_android_screen_text():
@@ -380,74 +425,77 @@ def read_android_screen_text():
     adb = find_adb()
     if not adb:
         raise RuntimeError(
-            "Không tìm thấy adb.exe. Hãy thêm ADB vào PATH hoặc đặt biến ADB_PATH trỏ tới adb.exe của scrcpy/platform-tools."
+            "Không tìm thấy adb.exe. Hãy thêm ADB vào PATH hoặc đặt ADB_PATH trỏ tới adb.exe."
         )
 
     serial = get_device(adb)
     base = [adb, "-s", serial]
 
+    # Fast mode is default because phone/video/webview screens usually make
+    # UIAutomator slow and incomplete. It avoids paying that cost before OCR.
+    if FAST_OCR:
+        try:
+            return read_fast_ocr(base, serial)
+        except Exception as exc:
+            print(f"[FAST OCR lỗi] {type(exc).__name__}: {exc}", flush=True)
+            print("[FAST OCR] Đang fallback sang UIAutomator + OCR chuẩn...", flush=True)
+
     ui_text = ""
     ui_items = 0
     ui_error = None
-
     try:
         try:
             xml_text = dump_ui_xml(base)
         except Exception:
-            # Device may have been unplugged/reconnected; refresh once.
             _cached_serial = None
             serial = get_device(adb)
             base = [adb, "-s", serial]
             xml_text = dump_ui_xml(base)
-
         ui_text, ui_items = extract_text_from_xml(xml_text)
     except Exception as exc:
         ui_error = str(exc)
         print(f"[LỖI UIAutomator] {type(exc).__name__}: {exc}", flush=True)
 
-    ocr_used = False
+    if not needs_ocr(ui_text, ui_items):
+        return {
+            "ok": True,
+            "text": ui_text,
+            "items": ui_items,
+            "uiItems": ui_items,
+            "ocrUsed": False,
+            "method": "uiautomator",
+            "device": serial,
+        }
+
     ocr_error = None
-    text = ui_text
-    items = ui_items
+    try:
+        png_data = capture_screen_png(base)
+        ocr_text = ocr_png_with_tesseract(png_data)
+        text, items = merge_texts(ocr_text, ui_text)
+        return {
+            "ok": True,
+            "text": text,
+            "items": items,
+            "uiItems": ui_items,
+            "ocrUsed": True,
+            "method": "tesseract+uiautomator",
+            "device": serial,
+        }
+    except Exception as exc:
+        ocr_error = str(exc)
+        print(f"[LỖI OCR] {type(exc).__name__}: {exc}", flush=True)
 
-    if needs_ocr(ui_text, ui_items):
-        try:
-            png_data = capture_screen_png(base)
-            ocr_text = ocr_png_with_windows(png_data)
-            if not ocr_text:
-                raise RuntimeError("Windows OCR không nhận ra chữ trên ảnh màn hình.")
-
-            # OCR keeps visual reading order. Append UIAutomator-only labels afterward.
-            text, items = merge_texts(ocr_text, ui_text)
-            ocr_used = True
-        except Exception as exc:
-            ocr_error = str(exc)
-            print(f"[LỖI OCR] {type(exc).__name__}: {exc}", flush=True)
-
-    if not text:
-        details = [part for part in (ui_error, ocr_error) if part]
-        suffix = " | ".join(details) if details else "Không tìm thấy text."
-        raise RuntimeError(f"Không đọc được chữ trên màn hình Android. {suffix}")
-
-    # Do not silently send a clearly incomplete UIAutomator result when OCR was required.
-    if needs_ocr(ui_text, ui_items) and not ocr_used:
+    if ui_text:
         raise RuntimeError(
-            f"UIAutomator chỉ lấy được {ui_items} mục/{len(ui_text)} ký tự; OCR fallback lỗi: {ocr_error or 'không xác định'}"
+            f"UIAutomator chỉ lấy được {ui_items} mục/{len(ui_text)} ký tự; OCR lỗi: {ocr_error or 'không xác định'}"
         )
 
-    return {
-        "ok": True,
-        "text": text,
-        "items": items,
-        "uiItems": ui_items,
-        "ocrUsed": ocr_used,
-        "method": "windows-ocr+uiautomator" if ocr_used else "uiautomator",
-        "device": serial,
-    }
+    details = [part for part in (ui_error, ocr_error) if part]
+    raise RuntimeError("Không đọc được chữ trên màn hình Android. " + " | ".join(details))
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "AndroidTextBridge/1.3"
+    server_version = "AndroidTextBridge/1.4"
 
     def send_json(self, status, payload):
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -461,9 +509,14 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = urlparse(self.path).path
-
         if path == "/health":
-            self.send_json(200, {"ok": True, "bridge": "running", "adbFound": bool(find_adb())})
+            self.send_json(200, {
+                "ok": True,
+                "bridge": "running",
+                "adbFound": bool(find_adb()),
+                "tesseractFound": bool(find_tesseract()),
+                "fastOcr": FAST_OCR,
+            })
             return
 
         if path != "/screen-text":
@@ -486,10 +539,12 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     print("=" * 58)
-    print(" Android UI text → ChatGPT local bridge")
+    print(" Android UI text → ChatGPT local bridge v1.4")
     print(f" http://{HOST}:{PORT}")
-    print(" UIAutomator + tự fallback Windows OCR khi text bị thiếu.")
-    print(" Mọi lỗi đọc màn hình/OCR sẽ được in và giữ trong terminal.")
+    print(f" Fast OCR: {'ON' if FAST_OCR else 'OFF'}")
+    print(" Fast OCR = chụp màn hình → Tesseract trực tiếp, bỏ UIAutomator/PowerShell.")
+    print(" Tesseract path + language được cache sau lần đầu.")
+    print(" Mọi lỗi đọc màn hình/OCR sẽ được giữ trong terminal.")
     print(" Nhấn Ctrl+C để dừng.")
     print("=" * 58)
 
@@ -502,7 +557,9 @@ def main():
             print(f"CẢNH BÁO: {exc}", flush=True)
     else:
         print("CẢNH BÁO: Chưa tìm thấy adb.exe.")
-        print("Có thể đặt: set ADB_PATH=C:\\duong-dan\\adb.exe")
+
+    tesseract = find_tesseract()
+    print(f"Tesseract: {tesseract or 'chưa tìm thấy - chạy install-vietnamese-ocr.bat'}")
 
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     try:
