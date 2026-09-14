@@ -10,6 +10,10 @@ $OutputEncoding = [Console]::OutputEncoding
 
 Add-Type -AssemblyName System.Runtime.WindowsRuntime
 
+# Force-load the WinRT types used below. Loading IAsyncOperation explicitly is
+# important on some Windows PowerShell/.NET installations because the generic
+# awaiter methods are otherwise not exposed correctly through reflection.
+$null = [Windows.Foundation.IAsyncOperation`1, Windows.Foundation, ContentType = WindowsRuntime]
 $null = [Windows.Storage.StorageFile, Windows.Storage, ContentType = WindowsRuntime]
 $null = [Windows.Storage.FileAccessMode, Windows.Storage, ContentType = WindowsRuntime]
 $null = [Windows.Storage.Streams.IRandomAccessStream, Windows.Storage.Streams, ContentType = WindowsRuntime]
@@ -18,17 +22,33 @@ $null = [Windows.Graphics.Imaging.SoftwareBitmap, Windows.Graphics.Imaging, Cont
 $null = [Windows.Media.Ocr.OcrEngine, Windows.Foundation, ContentType = WindowsRuntime]
 $null = [Windows.Media.Ocr.OcrResult, Windows.Foundation, ContentType = WindowsRuntime]
 
-$asTaskGeneric = [System.WindowsRuntimeSystemExtensions].GetMethods() |
+# PowerShell cannot directly await WinRT IAsyncOperation<T>. GetAwaiter is more
+# broadly compatible than looking for a specific AsTask overload, which is not
+# exposed the same way on every Windows PowerShell/.NET build.
+$getAwaiterBaseMethod = [System.WindowsRuntimeSystemExtensions].GetMember("GetAwaiter") |
     Where-Object {
-        $_.Name -eq "AsTask" -and
+        $_ -is [System.Reflection.MethodInfo] -and
         $_.IsGenericMethodDefinition -and
         $_.GetParameters().Count -eq 1 -and
         $_.GetParameters()[0].ParameterType.Name -eq "IAsyncOperation`1"
     } |
     Select-Object -First 1
 
-if (-not $asTaskGeneric) {
-    throw "Không tìm thấy WindowsRuntime AsTask."
+if (-not $getAwaiterBaseMethod) {
+    # Fallback: accept any single-argument generic GetAwaiter whose input is a
+    # WinRT IAsyncOperation. This handles reflection differences across builds.
+    $getAwaiterBaseMethod = [System.WindowsRuntimeSystemExtensions].GetMethods() |
+        Where-Object {
+            $_.Name -eq "GetAwaiter" -and
+            $_.IsGenericMethodDefinition -and
+            $_.GetParameters().Count -eq 1 -and
+            $_.GetParameters()[0].ParameterType.FullName -like "Windows.Foundation.IAsyncOperation*"
+        } |
+        Select-Object -First 1
+}
+
+if (-not $getAwaiterBaseMethod) {
+    throw "WinRT GetAwaiter is unavailable in this Windows PowerShell runtime."
 }
 
 function Await-WinRt {
@@ -40,15 +60,22 @@ function Await-WinRt {
         [Type]$ResultType
     )
 
-    $asTask = $script:asTaskGeneric.MakeGenericMethod($ResultType)
-    $netTask = $asTask.Invoke($null, @($AsyncOperation))
-    $netTask.Wait(-1) | Out-Null
-    return $netTask.Result
+    try {
+        $method = $script:getAwaiterBaseMethod.MakeGenericMethod($ResultType)
+        $awaiter = $method.Invoke($null, @($AsyncOperation))
+        return $awaiter.GetResult()
+    }
+    catch {
+        if ($null -ne $_.Exception.InnerException) {
+            throw $_.Exception.InnerException
+        }
+        throw
+    }
 }
 
 $fullPath = [System.IO.Path]::GetFullPath($ImagePath)
 if (-not [System.IO.File]::Exists($fullPath)) {
-    throw "Không tìm thấy ảnh OCR: $fullPath"
+    throw "OCR image file was not found: $fullPath"
 }
 
 $storageFile = Await-WinRt `
@@ -71,7 +98,7 @@ try {
     try {
         $engine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromUserProfileLanguages()
         if ($null -eq $engine) {
-            throw "Windows OCR không có ngôn ngữ OCR khả dụng. Hãy cài OCR language feature trong Windows."
+            throw "Windows OCR has no available recognition language. Install a Windows OCR language feature and retry."
         }
 
         $result = Await-WinRt `
