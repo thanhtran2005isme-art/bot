@@ -4,6 +4,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import xml.etree.ElementTree as ET
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -12,10 +13,67 @@ from urllib.parse import urlparse
 HOST = "127.0.0.1"
 PORT = 8765
 MAX_TEXT = 30000
+MIN_UI_ITEMS = 5
+MIN_UI_CHARS = 100
 SCRIPT_DIR = Path(__file__).resolve().parent
 
 _cached_adb = None
 _cached_serial = None
+
+
+def _creationflags():
+    if os.name == "nt" and hasattr(subprocess, "CREATE_NO_WINDOW"):
+        return subprocess.CREATE_NO_WINDOW
+    return 0
+
+
+def run_process(args, timeout=8, label="ADB"):
+    try:
+        result = subprocess.run(
+            args,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=timeout,
+            creationflags=_creationflags(),
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(f"{label} phản hồi quá lâu.")
+    except OSError as exc:
+        raise RuntimeError(f"Không chạy được {label}: {exc}")
+
+    stdout = result.stdout.decode("utf-8", errors="replace").strip()
+    stderr = result.stderr.decode("utf-8", errors="replace").strip()
+
+    if result.returncode != 0:
+        detail = stderr or stdout or f"exit code {result.returncode}"
+        raise RuntimeError(detail)
+
+    return stdout
+
+
+def run_process_bytes(args, timeout=8, label="ADB"):
+    try:
+        result = subprocess.run(
+            args,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=timeout,
+            creationflags=_creationflags(),
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(f"{label} phản hồi quá lâu.")
+    except OSError as exc:
+        raise RuntimeError(f"Không chạy được {label}: {exc}")
+
+    if result.returncode != 0:
+        detail = result.stderr.decode("utf-8", errors="replace").strip()
+        if not detail:
+            detail = f"exit code {result.returncode}"
+        raise RuntimeError(detail)
+
+    return result.stdout
 
 
 def find_adb():
@@ -59,35 +117,6 @@ def find_adb():
             return _cached_adb
 
     return None
-
-
-def run_process(args, timeout=8):
-    creationflags = 0
-    if os.name == "nt" and hasattr(subprocess, "CREATE_NO_WINDOW"):
-        creationflags = subprocess.CREATE_NO_WINDOW
-
-    try:
-        result = subprocess.run(
-            args,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            timeout=timeout,
-            creationflags=creationflags,
-            check=False,
-        )
-    except subprocess.TimeoutExpired:
-        raise RuntimeError("ADB phản hồi quá lâu.")
-    except OSError as exc:
-        raise RuntimeError(f"Không chạy được ADB: {exc}")
-
-    stdout = result.stdout.decode("utf-8", errors="replace").strip()
-    stderr = result.stderr.decode("utf-8", errors="replace").strip()
-
-    if result.returncode != 0:
-        detail = stderr or stdout or f"exit code {result.returncode}"
-        raise RuntimeError(detail)
-
-    return stdout
 
 
 def list_devices(adb):
@@ -161,6 +190,13 @@ def isolate_ui_xml(raw_text):
     return raw_text[start:end].strip()
 
 
+def limit_text(text):
+    text = str(text or "").strip()
+    if len(text) > MAX_TEXT:
+        return text[:MAX_TEXT].rstrip() + "\n[Đã cắt bớt vì màn hình có quá nhiều text]"
+    return text
+
+
 def extract_text_from_xml(xml_text):
     xml_text = isolate_ui_xml(xml_text)
 
@@ -175,16 +211,13 @@ def extract_text_from_xml(xml_text):
     for node in root.iter("node"):
         for key in ("text", "content-desc", "hint"):
             value = clean_value(node.attrib.get(key, ""))
-            if not value or value in seen:
+            normalized = value.casefold()
+            if not value or normalized in seen:
                 continue
-            seen.add(value)
+            seen.add(normalized)
             lines.append(value)
 
-    text = "\n".join(lines).strip()
-    if len(text) > MAX_TEXT:
-        text = text[:MAX_TEXT].rstrip() + "\n[Đã cắt bớt vì màn hình có quá nhiều text]"
-
-    return text, len(lines)
+    return limit_text("\n".join(lines)), len(lines)
 
 
 def dump_ui_xml(base):
@@ -192,7 +225,6 @@ def dump_ui_xml(base):
     try:
         direct = run_process(base + ["exec-out", "uiautomator", "dump", "/dev/tty"], timeout=6)
         if "<hierarchy" in direct and "</hierarchy>" in direct:
-            # Validate/crop here so extra UIAutomator status text cannot break parsing.
             return isolate_ui_xml(direct)
     except Exception:
         pass
@@ -201,6 +233,78 @@ def dump_ui_xml(base):
     run_process(base + ["shell", "uiautomator", "dump", "/sdcard/window.xml"], timeout=8)
     fallback = run_process(base + ["exec-out", "cat", "/sdcard/window.xml"], timeout=4)
     return isolate_ui_xml(fallback)
+
+
+def needs_ocr(text, items):
+    return items < MIN_UI_ITEMS or len(str(text or "").strip()) < MIN_UI_CHARS
+
+
+def capture_screen_png(base):
+    data = run_process_bytes(base + ["exec-out", "screencap", "-p"], timeout=5)
+    if not data.startswith(b"\x89PNG\r\n\x1a\n"):
+        raise RuntimeError("ADB screencap không trả về ảnh PNG hợp lệ.")
+    return data
+
+
+def find_powershell():
+    return shutil.which("powershell.exe") or shutil.which("powershell")
+
+
+def ocr_png_with_windows(png_data):
+    if os.name != "nt":
+        raise RuntimeError("OCR fallback hiện dùng Windows OCR và chỉ chạy trên Windows.")
+
+    powershell = find_powershell()
+    if not powershell:
+        raise RuntimeError("Không tìm thấy Windows PowerShell.")
+
+    helper = SCRIPT_DIR / "windows-ocr.ps1"
+    if not helper.is_file():
+        raise RuntimeError("Thiếu file windows-ocr.ps1 trong thư mục extension.")
+
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(prefix="rcgpt-screen-", suffix=".png", delete=False) as tmp:
+            tmp.write(png_data)
+            tmp_path = tmp.name
+
+        output = run_process(
+            [
+                powershell,
+                "-NoProfile",
+                "-STA",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                str(helper),
+                tmp_path,
+            ],
+            timeout=14,
+            label="Windows OCR",
+        )
+        return limit_text(output)
+    finally:
+        if tmp_path:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+
+
+def merge_texts(primary, secondary):
+    lines = []
+    seen = set()
+
+    for source in (primary, secondary):
+        for raw_line in str(source or "").splitlines():
+            value = clean_value(raw_line)
+            key = value.casefold()
+            if not value or key in seen:
+                continue
+            seen.add(key)
+            lines.append(value)
+
+    return limit_text("\n".join(lines)), len(lines)
 
 
 def read_android_screen_text():
@@ -215,26 +319,66 @@ def read_android_screen_text():
     serial = get_device(adb)
     base = [adb, "-s", serial]
 
-    try:
-        xml_text = dump_ui_xml(base)
-    except Exception:
-        # Device may have been unplugged/reconnected; refresh once.
-        _cached_serial = None
-        serial = get_device(adb)
-        base = [adb, "-s", serial]
-        xml_text = dump_ui_xml(base)
+    ui_text = ""
+    ui_items = 0
+    ui_error = None
 
-    text, items = extract_text_from_xml(xml_text)
+    try:
+        try:
+            xml_text = dump_ui_xml(base)
+        except Exception:
+            # Device may have been unplugged/reconnected; refresh once.
+            _cached_serial = None
+            serial = get_device(adb)
+            base = [adb, "-s", serial]
+            xml_text = dump_ui_xml(base)
+
+        ui_text, ui_items = extract_text_from_xml(xml_text)
+    except Exception as exc:
+        ui_error = str(exc)
+
+    ocr_used = False
+    ocr_error = None
+    text = ui_text
+    items = ui_items
+
+    if needs_ocr(ui_text, ui_items):
+        try:
+            png_data = capture_screen_png(base)
+            ocr_text = ocr_png_with_windows(png_data)
+            if not ocr_text:
+                raise RuntimeError("Windows OCR không nhận ra chữ trên ảnh màn hình.")
+
+            # OCR keeps visual reading order. Append UIAutomator-only labels afterward.
+            text, items = merge_texts(ocr_text, ui_text)
+            ocr_used = True
+        except Exception as exc:
+            ocr_error = str(exc)
+
+    if not text:
+        details = [part for part in (ui_error, ocr_error) if part]
+        suffix = " | ".join(details) if details else "Không tìm thấy text."
+        raise RuntimeError(f"Không đọc được chữ trên màn hình Android. {suffix}")
+
+    # Do not silently send a clearly incomplete UIAutomator result when OCR was required.
+    if needs_ocr(ui_text, ui_items) and not ocr_used:
+        raise RuntimeError(
+            f"UIAutomator chỉ lấy được {ui_items} mục/{len(ui_text)} ký tự; OCR fallback lỗi: {ocr_error or 'không xác định'}"
+        )
+
     return {
         "ok": True,
         "text": text,
         "items": items,
+        "uiItems": ui_items,
+        "ocrUsed": ocr_used,
+        "method": "windows-ocr+uiautomator" if ocr_used else "uiautomator",
         "device": serial,
     }
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "AndroidTextBridge/1.2"
+    server_version = "AndroidTextBridge/1.3"
 
     def send_json(self, status, payload):
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -270,6 +414,7 @@ def main():
     print("=" * 58)
     print(" Android UI text → ChatGPT local bridge")
     print(f" http://{HOST}:{PORT}")
+    print(" UIAutomator + tự fallback Windows OCR khi text bị thiếu.")
     print(" Nhấn Ctrl+C để dừng.")
     print("=" * 58)
 
