@@ -240,10 +240,75 @@ def needs_ocr(text, items):
 
 
 def capture_screen_png(base):
-    data = run_process_bytes(base + ["exec-out", "screencap", "-p"], timeout=5)
-    if not data.startswith(b"\x89PNG\r\n\x1a\n"):
-        raise RuntimeError("ADB screencap không trả về ảnh PNG hợp lệ.")
-    return data
+    png_signature = b"\x89PNG\r\n\x1a\n"
+    direct_error = None
+
+    # Fast path. Some ADB/device combinations prepend noise before the PNG,
+    # so accept a valid PNG signature even when it is not at byte 0.
+    try:
+        data = run_process_bytes(
+            base + ["exec-out", "screencap", "-p"],
+            timeout=8,
+            label="ADB screencap",
+        )
+        png_start = data.find(png_signature)
+        if png_start >= 0:
+            return data[png_start:]
+        direct_error = f"exec-out trả về {len(data)} bytes nhưng không có PNG signature"
+    except Exception as exc:
+        direct_error = str(exc)
+
+    # Compatibility fallback: save the screenshot on Android, then pull it.
+    # This avoids broken/binary-corrupted exec-out streams on some devices.
+    remote_path = "/sdcard/__rcgpt_screen.png"
+    local_path = None
+
+    try:
+        run_process(
+            base + ["shell", "screencap", "-p", remote_path],
+            timeout=8,
+            label="ADB screencap",
+        )
+
+        with tempfile.NamedTemporaryFile(
+            prefix="rcgpt-adb-screen-",
+            suffix=".png",
+            delete=False,
+        ) as tmp:
+            local_path = tmp.name
+
+        run_process(
+            base + ["pull", remote_path, local_path],
+            timeout=10,
+            label="ADB pull screenshot",
+        )
+
+        with open(local_path, "rb") as file:
+            data = file.read()
+
+        png_start = data.find(png_signature)
+        if png_start < 0:
+            raise RuntimeError(
+                f"Ảnh ADB pull không phải PNG hợp lệ ({len(data)} bytes). "
+                f"Lỗi đường nhanh: {direct_error or 'không xác định'}"
+            )
+
+        return data[png_start:]
+    finally:
+        try:
+            run_process(
+                base + ["shell", "rm", "-f", remote_path],
+                timeout=3,
+                label="ADB cleanup",
+            )
+        except Exception:
+            pass
+
+        if local_path:
+            try:
+                os.unlink(local_path)
+            except OSError:
+                pass
 
 
 def find_powershell():
