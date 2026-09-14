@@ -10,9 +10,9 @@ $OutputEncoding = [Console]::OutputEncoding
 
 Add-Type -AssemblyName System.Runtime.WindowsRuntime
 
-# Force-load the WinRT types used below. Loading IAsyncOperation explicitly is
-# important on some Windows PowerShell/.NET installations because the generic
-# awaiter methods are otherwise not exposed correctly through reflection.
+# Explicitly load the WinRT generic async interface before reflecting over
+# WindowsRuntimeSystemExtensions. This is required on some Windows PowerShell
+# 5.1/.NET Framework installations.
 $null = [Windows.Foundation.IAsyncOperation`1, Windows.Foundation, ContentType = WindowsRuntime]
 $null = [Windows.Storage.StorageFile, Windows.Storage, ContentType = WindowsRuntime]
 $null = [Windows.Storage.FileAccessMode, Windows.Storage, ContentType = WindowsRuntime]
@@ -22,33 +22,55 @@ $null = [Windows.Graphics.Imaging.SoftwareBitmap, Windows.Graphics.Imaging, Cont
 $null = [Windows.Media.Ocr.OcrEngine, Windows.Foundation, ContentType = WindowsRuntime]
 $null = [Windows.Media.Ocr.OcrResult, Windows.Foundation, ContentType = WindowsRuntime]
 
-# PowerShell cannot directly await WinRT IAsyncOperation<T>. GetAwaiter is more
-# broadly compatible than looking for a specific AsTask overload, which is not
-# exposed the same way on every Windows PowerShell/.NET build.
+# Windows PowerShell 5.1 exposes these WinRT bridge methods differently across
+# Windows/.NET builds. Do NOT require IsGenericMethodDefinition here: on some
+# systems that filter hides the correct method even though MakeGenericMethod()
+# works. Prefer GetAwaiter, then fall back to AsTask.
 $getAwaiterBaseMethod = [System.WindowsRuntimeSystemExtensions].GetMember("GetAwaiter") |
     Where-Object {
-        $_ -is [System.Reflection.MethodInfo] -and
-        $_.IsGenericMethodDefinition -and
-        $_.GetParameters().Count -eq 1 -and
-        $_.GetParameters()[0].ParameterType.Name -eq "IAsyncOperation`1"
+        try {
+            $_ -is [System.Reflection.MethodInfo] -and
+            $_.GetParameters().Count -eq 1 -and
+            $_.GetParameters()[0].ParameterType.Name -eq "IAsyncOperation`1"
+        }
+        catch {
+            $false
+        }
     } |
     Select-Object -First 1
 
+$asTaskBaseMethod = $null
 if (-not $getAwaiterBaseMethod) {
-    # Fallback: accept any single-argument generic GetAwaiter whose input is a
-    # WinRT IAsyncOperation. This handles reflection differences across builds.
-    $getAwaiterBaseMethod = [System.WindowsRuntimeSystemExtensions].GetMethods() |
+    $asTaskBaseMethod = [System.WindowsRuntimeSystemExtensions].GetMember("AsTask") |
         Where-Object {
-            $_.Name -eq "GetAwaiter" -and
-            $_.IsGenericMethodDefinition -and
-            $_.GetParameters().Count -eq 1 -and
-            $_.GetParameters()[0].ParameterType.FullName -like "Windows.Foundation.IAsyncOperation*"
+            try {
+                $_ -is [System.Reflection.MethodInfo] -and
+                $_.GetParameters().Count -eq 1 -and
+                $_.GetParameters()[0].ParameterType.Name -eq "IAsyncOperation`1"
+            }
+            catch {
+                $false
+            }
         } |
         Select-Object -First 1
 }
 
-if (-not $getAwaiterBaseMethod) {
-    throw "WinRT GetAwaiter is unavailable in this Windows PowerShell runtime."
+if (-not $getAwaiterBaseMethod -and -not $asTaskBaseMethod) {
+    $available = [System.WindowsRuntimeSystemExtensions].GetMethods() |
+        Where-Object { $_.Name -in @("GetAwaiter", "AsTask") } |
+        ForEach-Object {
+            try {
+                $p = ($_.GetParameters() | ForEach-Object { $_.ParameterType.Name }) -join ", "
+                "$($_.Name)($p)"
+            }
+            catch {
+                $_.Name
+            }
+        } |
+        Select-Object -Unique
+
+    $detail = ($available -join "; ")
+    throw "No compatible WinRT await bridge was found. Available methods: $detail"
 }
 
 function Await-WinRt {
@@ -61,15 +83,23 @@ function Await-WinRt {
     )
 
     try {
-        $method = $script:getAwaiterBaseMethod.MakeGenericMethod($ResultType)
-        $awaiter = $method.Invoke($null, @($AsyncOperation))
-        return $awaiter.GetResult()
+        if ($script:getAwaiterBaseMethod) {
+            $method = $script:getAwaiterBaseMethod.MakeGenericMethod($ResultType)
+            $awaiter = $method.Invoke($null, @($AsyncOperation))
+            return $awaiter.GetResult()
+        }
+
+        $method = $script:asTaskBaseMethod.MakeGenericMethod($ResultType)
+        $task = $method.Invoke($null, @($AsyncOperation))
+        $task.Wait(-1) | Out-Null
+        return $task.Result
     }
     catch {
-        if ($null -ne $_.Exception.InnerException) {
-            throw $_.Exception.InnerException
+        $current = $_.Exception
+        while ($null -ne $current.InnerException) {
+            $current = $current.InnerException
         }
-        throw
+        throw $current
     }
 }
 
@@ -98,7 +128,7 @@ try {
     try {
         $engine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromUserProfileLanguages()
         if ($null -eq $engine) {
-            throw "Windows OCR has no available recognition language. Install a Windows OCR language feature and retry."
+            throw "Windows OCR has no installed recognition language. Install an OCR language feature in Windows."
         }
 
         $result = Await-WinRt `
