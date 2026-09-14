@@ -22,37 +22,34 @@ $null = [Windows.Graphics.Imaging.SoftwareBitmap, Windows.Graphics.Imaging, Cont
 $null = [Windows.Media.Ocr.OcrEngine, Windows.Foundation, ContentType = WindowsRuntime]
 $null = [Windows.Media.Ocr.OcrResult, Windows.Foundation, ContentType = WindowsRuntime]
 
-# Windows PowerShell 5.1 exposes these WinRT bridge methods differently across
-# Windows/.NET builds. Do NOT require IsGenericMethodDefinition here: on some
-# systems that filter hides the correct method even though MakeGenericMethod()
-# works. Prefer GetAwaiter, then fall back to AsTask.
-$getAwaiterBaseMethod = [System.WindowsRuntimeSystemExtensions].GetMember("GetAwaiter") |
-    Where-Object {
-        try {
-            $_ -is [System.Reflection.MethodInfo] -and
-            $_.GetParameters().Count -eq 1 -and
-            $_.GetParameters()[0].ParameterType.Name -eq "IAsyncOperation`1"
-        }
-        catch {
-            $false
-        }
-    } |
-    Select-Object -First 1
+function Find-WinRtBridgeMethod {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Name
+    )
 
-$asTaskBaseMethod = $null
-if (-not $getAwaiterBaseMethod) {
-    $asTaskBaseMethod = [System.WindowsRuntimeSystemExtensions].GetMember("AsTask") |
+    # IMPORTANT: keep IAsyncOperation`1 in SINGLE quotes. In a double-quoted
+    # PowerShell string the backtick is an escape character, so the comparison
+    # silently fails even though the method exists.
+    return [System.WindowsRuntimeSystemExtensions].GetMethods() |
         Where-Object {
             try {
-                $_ -is [System.Reflection.MethodInfo] -and
+                $_.Name -eq $Name -and
                 $_.GetParameters().Count -eq 1 -and
-                $_.GetParameters()[0].ParameterType.Name -eq "IAsyncOperation`1"
+                $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation`1'
             }
             catch {
                 $false
             }
         } |
         Select-Object -First 1
+}
+
+$getAwaiterBaseMethod = Find-WinRtBridgeMethod -Name "GetAwaiter"
+$asTaskBaseMethod = $null
+
+if (-not $getAwaiterBaseMethod) {
+    $asTaskBaseMethod = Find-WinRtBridgeMethod -Name "AsTask"
 }
 
 if (-not $getAwaiterBaseMethod -and -not $asTaskBaseMethod) {
