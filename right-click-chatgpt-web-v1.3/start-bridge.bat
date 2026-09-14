@@ -19,18 +19,35 @@ if defined ADB_PATH echo ADB: %ADB_PATH%
 
 echo.
 echo Dang khoi dong Android UI Text Bridge...
+echo Moi loi se duoc ghi truc tiep trong cua so nay.
 echo Giu cua so nay mo trong khi su dung extension.
 echo.
 
 where py.exe >nul 2>nul
 if %errorlevel%==0 (
   py -3 "%~dp0android-bridge.py"
+  if errorlevel 1 (
+    echo.
+    echo ==========================================================
+    echo [LOI] Android bridge da dung bat thuong.
+    echo Xem thong bao loi o phia tren. Cua so nay se duoc giu lai.
+    echo ==========================================================
+    pause
+  )
   goto :end
 )
 
 where python.exe >nul 2>nul
 if %errorlevel%==0 (
   python "%~dp0android-bridge.py"
+  if errorlevel 1 (
+    echo.
+    echo ==========================================================
+    echo [LOI] Android bridge da dung bat thuong.
+    echo Xem thong bao loi o phia tren. Cua so nay se duoc giu lai.
+    echo ==========================================================
+    pause
+  )
   goto :end
 )
 
