@@ -255,8 +255,10 @@ def capture_screen_png(base):
         if png_start >= 0:
             return data[png_start:]
         direct_error = f"exec-out trả về {len(data)} bytes nhưng không có PNG signature"
+        print(f"[CẢNH BÁO screencap] {direct_error}; đang thử adb pull...", flush=True)
     except Exception as exc:
         direct_error = str(exc)
+        print(f"[CẢNH BÁO screencap] exec-out lỗi: {direct_error}; đang thử adb pull...", flush=True)
 
     # Compatibility fallback: save the screenshot on Android, then pull it.
     # This avoids broken/binary-corrupted exec-out streams on some devices.
@@ -401,6 +403,7 @@ def read_android_screen_text():
         ui_text, ui_items = extract_text_from_xml(xml_text)
     except Exception as exc:
         ui_error = str(exc)
+        print(f"[LỖI UIAutomator] {type(exc).__name__}: {exc}", flush=True)
 
     ocr_used = False
     ocr_error = None
@@ -419,6 +422,7 @@ def read_android_screen_text():
             ocr_used = True
         except Exception as exc:
             ocr_error = str(exc)
+            print(f"[LỖI OCR] {type(exc).__name__}: {exc}", flush=True)
 
     if not text:
         details = [part for part in (ui_error, ocr_error) if part]
@@ -469,10 +473,15 @@ class Handler(BaseHTTPRequestHandler):
         try:
             self.send_json(200, read_android_screen_text())
         except Exception as exc:
+            print("", flush=True)
+            print("=" * 58, flush=True)
+            print(f"[LỖI /screen-text] {type(exc).__name__}: {exc}", flush=True)
+            print("Lỗi này đã được giữ lại trong terminal để bạn đọc.", flush=True)
+            print("=" * 58, flush=True)
             self.send_json(500, {"ok": False, "error": str(exc)})
 
     def log_message(self, fmt, *args):
-        print(f"[bridge] {self.address_string()} - {fmt % args}")
+        print(f"[bridge] {self.address_string()} - {fmt % args}", flush=True)
 
 
 def main():
@@ -480,6 +489,7 @@ def main():
     print(" Android UI text → ChatGPT local bridge")
     print(f" http://{HOST}:{PORT}")
     print(" UIAutomator + tự fallback Windows OCR khi text bị thiếu.")
+    print(" Mọi lỗi đọc màn hình/OCR sẽ được in và giữ trong terminal.")
     print(" Nhấn Ctrl+C để dừng.")
     print("=" * 58)
 
@@ -489,7 +499,7 @@ def main():
         try:
             print(f"Device: {get_device(adb)}")
         except Exception as exc:
-            print(f"CẢNH BÁO: {exc}")
+            print(f"CẢNH BÁO: {exc}", flush=True)
     else:
         print("CẢNH BÁO: Chưa tìm thấy adb.exe.")
         print("Có thể đặt: set ADB_PATH=C:\\duong-dan\\adb.exe")
@@ -507,5 +517,5 @@ if __name__ == "__main__":
     try:
         main()
     except OSError as exc:
-        print(f"Không thể mở bridge tại {HOST}:{PORT}: {exc}")
+        print(f"Không thể mở bridge tại {HOST}:{PORT}: {exc}", flush=True)
         sys.exit(1)
