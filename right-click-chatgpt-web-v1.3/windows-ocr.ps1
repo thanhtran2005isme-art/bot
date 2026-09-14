@@ -8,95 +8,93 @@ $ProgressPreference = "SilentlyContinue"
 [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
 $OutputEncoding = [Console]::OutputEncoding
 
-Add-Type -AssemblyName System.Runtime.WindowsRuntime
+function Find-Tesseract {
+    $candidates = New-Object System.Collections.Generic.List[string]
 
-# Explicitly load the WinRT generic async interface before reflecting over
-# WindowsRuntimeSystemExtensions. This is required on some Windows PowerShell
-# 5.1/.NET Framework installations.
-$null = [Windows.Foundation.IAsyncOperation`1, Windows.Foundation, ContentType = WindowsRuntime]
-$null = [Windows.Storage.StorageFile, Windows.Storage, ContentType = WindowsRuntime]
-$null = [Windows.Storage.FileAccessMode, Windows.Storage, ContentType = WindowsRuntime]
-$null = [Windows.Storage.Streams.IRandomAccessStream, Windows.Storage.Streams, ContentType = WindowsRuntime]
-$null = [Windows.Graphics.Imaging.BitmapDecoder, Windows.Graphics.Imaging, ContentType = WindowsRuntime]
-$null = [Windows.Graphics.Imaging.SoftwareBitmap, Windows.Graphics.Imaging, ContentType = WindowsRuntime]
-$null = [Windows.Media.Ocr.OcrEngine, Windows.Foundation, ContentType = WindowsRuntime]
-$null = [Windows.Media.Ocr.OcrResult, Windows.Foundation, ContentType = WindowsRuntime]
-
-function Find-WinRtBridgeMethod {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$Name
-    )
-
-    # IMPORTANT: keep IAsyncOperation`1 in SINGLE quotes. In a double-quoted
-    # PowerShell string the backtick is an escape character, so the comparison
-    # silently fails even though the method exists.
-    return [System.WindowsRuntimeSystemExtensions].GetMethods() |
-        Where-Object {
-            try {
-                $_.Name -eq $Name -and
-                $_.GetParameters().Count -eq 1 -and
-                $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation`1'
-            }
-            catch {
-                $false
-            }
-        } |
-        Select-Object -First 1
-}
-
-$getAwaiterBaseMethod = Find-WinRtBridgeMethod -Name "GetAwaiter"
-$asTaskBaseMethod = $null
-
-if (-not $getAwaiterBaseMethod) {
-    $asTaskBaseMethod = Find-WinRtBridgeMethod -Name "AsTask"
-}
-
-if (-not $getAwaiterBaseMethod -and -not $asTaskBaseMethod) {
-    $available = [System.WindowsRuntimeSystemExtensions].GetMethods() |
-        Where-Object { $_.Name -in @("GetAwaiter", "AsTask") } |
-        ForEach-Object {
-            try {
-                $p = ($_.GetParameters() | ForEach-Object { $_.ParameterType.Name }) -join ", "
-                "$($_.Name)($p)"
-            }
-            catch {
-                $_.Name
-            }
-        } |
-        Select-Object -Unique
-
-    $detail = ($available -join "; ")
-    throw "No compatible WinRT await bridge was found. Available methods: $detail"
-}
-
-function Await-WinRt {
-    param(
-        [Parameter(Mandatory = $true)]
-        $AsyncOperation,
-
-        [Parameter(Mandatory = $true)]
-        [Type]$ResultType
-    )
+    if ($env:TESSERACT_PATH) {
+        $candidates.Add($env:TESSERACT_PATH.Trim().Trim('"'))
+    }
 
     try {
-        if ($script:getAwaiterBaseMethod) {
-            $method = $script:getAwaiterBaseMethod.MakeGenericMethod($ResultType)
-            $awaiter = $method.Invoke($null, @($AsyncOperation))
-            return $awaiter.GetResult()
+        $command = Get-Command tesseract.exe -ErrorAction Stop
+        if ($command -and $command.Source) {
+            $candidates.Add($command.Source)
         }
-
-        $method = $script:asTaskBaseMethod.MakeGenericMethod($ResultType)
-        $task = $method.Invoke($null, @($AsyncOperation))
-        $task.Wait(-1) | Out-Null
-        return $task.Result
     }
-    catch {
-        $current = $_.Exception
-        while ($null -ne $current.InnerException) {
-            $current = $current.InnerException
+    catch {}
+
+    try {
+        $command = Get-Command tesseract -ErrorAction Stop
+        if ($command -and $command.Source) {
+            $candidates.Add($command.Source)
         }
-        throw $current
+    }
+    catch {}
+
+    $candidates.Add((Join-Path $PSScriptRoot "tesseract.exe"))
+
+    if ($env:ProgramFiles) {
+        $candidates.Add((Join-Path $env:ProgramFiles "Tesseract-OCR\tesseract.exe"))
+    }
+
+    ${programFilesX86} = ${env:ProgramFiles(x86)}
+    if (${programFilesX86}) {
+        $candidates.Add((Join-Path ${programFilesX86} "Tesseract-OCR\tesseract.exe"))
+    }
+
+    foreach ($candidate in ($candidates | Select-Object -Unique)) {
+        if ($candidate -and (Test-Path -LiteralPath $candidate -PathType Leaf)) {
+            return [System.IO.Path]::GetFullPath($candidate)
+        }
+    }
+
+    return $null
+}
+
+function Invoke-ProcessUtf8 {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$FileName,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Arguments
+    )
+
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = $FileName
+    $psi.Arguments = $Arguments
+    $psi.UseShellExecute = $false
+    $psi.CreateNoWindow = $true
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+
+    try {
+        $utf8 = New-Object System.Text.UTF8Encoding($false)
+        $psi.StandardOutputEncoding = $utf8
+        $psi.StandardErrorEncoding = $utf8
+    }
+    catch {}
+
+    $process = New-Object System.Diagnostics.Process
+    $process.StartInfo = $psi
+
+    if (-not $process.Start()) {
+        throw "Could not start: $FileName"
+    }
+
+    try {
+        $stdout = $process.StandardOutput.ReadToEnd()
+        $stderr = $process.StandardError.ReadToEnd()
+        $process.WaitForExit()
+
+        return [PSCustomObject]@{
+            ExitCode = $process.ExitCode
+            StdOut   = $stdout
+            StdErr   = $stderr
+        }
+    }
+    finally {
+        $process.Dispose()
     }
 }
 
@@ -105,45 +103,61 @@ if (-not [System.IO.File]::Exists($fullPath)) {
     throw "OCR image file was not found: $fullPath"
 }
 
-$storageFile = Await-WinRt `
-    ([Windows.Storage.StorageFile]::GetFileFromPathAsync($fullPath)) `
-    ([Windows.Storage.StorageFile])
-
-$fileStream = Await-WinRt `
-    ($storageFile.OpenAsync([Windows.Storage.FileAccessMode]::Read)) `
-    ([Windows.Storage.Streams.IRandomAccessStream])
-
-try {
-    $decoder = Await-WinRt `
-        ([Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($fileStream)) `
-        ([Windows.Graphics.Imaging.BitmapDecoder])
-
-    $softwareBitmap = Await-WinRt `
-        ($decoder.GetSoftwareBitmapAsync()) `
-        ([Windows.Graphics.Imaging.SoftwareBitmap])
-
-    try {
-        $engine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromUserProfileLanguages()
-        if ($null -eq $engine) {
-            throw "Windows OCR has no installed recognition language. Install an OCR language feature in Windows."
-        }
-
-        $result = Await-WinRt `
-            ($engine.RecognizeAsync($softwareBitmap)) `
-            ([Windows.Media.Ocr.OcrResult])
-
-        if ($null -ne $result -and $null -ne $result.Text) {
-            [Console]::Write($result.Text)
-        }
-    }
-    finally {
-        if ($null -ne $softwareBitmap) {
-            $softwareBitmap.Dispose()
-        }
-    }
+$tesseract = Find-Tesseract
+if (-not $tesseract) {
+    throw @"
+Tesseract OCR was not found. Windows OCR does not reliably recognize Vietnamese on this Windows version.
+Install Tesseract, then restart the bridge:
+  winget install --id UB-Mannheim.TesseractOCR -e
+If Tesseract is installed elsewhere, set TESSERACT_PATH to tesseract.exe.
+"@
 }
-finally {
-    if ($null -ne $fileStream) {
-        $fileStream.Dispose()
-    }
+
+$listResult = Invoke-ProcessUtf8 -FileName $tesseract -Arguments "--list-langs"
+if ($listResult.ExitCode -ne 0) {
+    $detail = ($listResult.StdErr + " " + $listResult.StdOut).Trim()
+    throw "Could not query Tesseract languages: $detail"
 }
+
+$languages = @(
+    ($listResult.StdOut -split "`r?`n") |
+        ForEach-Object { $_.Trim() } |
+        Where-Object { $_ -and $_ -notmatch '^List of available languages' }
+)
+
+if ($languages -notcontains "vie") {
+    $tessdataDir = Join-Path ([System.IO.Path]::GetDirectoryName($tesseract)) "tessdata"
+    $available = if ($languages.Count -gt 0) { $languages -join ", " } else { "none" }
+    throw @"
+Tesseract is installed, but Vietnamese OCR data is missing (vie.traineddata).
+Expected tessdata folder: $tessdataDir
+Available languages: $available
+Install/copy vie.traineddata into that tessdata folder, then restart the bridge.
+"@
+}
+
+$ocrLanguage = if ($languages -contains "eng") { "vie+eng" } else { "vie" }
+
+# PSM 6 works well for dense phone screenshots while preserving line order.
+# Override with RCGPT_TESSERACT_PSM if another layout works better on a device.
+$psm = if ($env:RCGPT_TESSERACT_PSM) { $env:RCGPT_TESSERACT_PSM.Trim() } else { "6" }
+if ($psm -notmatch '^\d+$') {
+    $psm = "6"
+}
+
+$escapedPath = $fullPath.Replace('"', '\"')
+$arguments = "`"$escapedPath`" stdout -l $ocrLanguage --oem 1 --psm $psm -c preserve_interword_spaces=1"
+$result = Invoke-ProcessUtf8 -FileName $tesseract -Arguments $arguments
+
+if ($result.ExitCode -ne 0) {
+    $detail = ($result.StdErr + " " + $result.StdOut).Trim()
+    throw "Tesseract OCR failed: $detail"
+}
+
+$text = [string]$result.StdOut
+$text = $text.Replace("`f", "").Trim()
+if (-not $text) {
+    throw "Tesseract did not recognize any text in the screenshot."
+}
+
+[Console]::Write($text)
