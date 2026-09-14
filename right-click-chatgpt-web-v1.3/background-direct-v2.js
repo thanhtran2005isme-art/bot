@@ -95,7 +95,8 @@ async function readPhoneAndSend() {
   await setActionState('…', 'Đang đọc màn hình Android…');
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 10000);
+  // OCR fallback may need a few extra seconds on the first Windows OCR call.
+  const timeout = setTimeout(() => controller.abort(), 20000);
 
   try {
     const response = await fetch(BRIDGE_URL, {
@@ -117,18 +118,19 @@ async function readPhoneAndSend() {
 
     const text = String(data.text || '').trim();
     if (!text) {
-      throw new Error('UIAutomator không tìm thấy text trên màn hình hiện tại.');
+      throw new Error('Không tìm thấy text trên màn hình Android.');
     }
 
-    await setActionState('→', `Đã đọc ${data.items || '?'} mục text. Đang gửi ChatGPT…`);
+    const mode = data.ocrUsed ? 'OCR' : 'UI';
+    await setActionState('→', `Đã đọc ${data.items || '?'} dòng (${mode}). Đang gửi ChatGPT…`);
     const result = await sendToChatGPT(makePhonePrompt(text));
     if (!result?.ok) throw new Error(result?.error || 'Không gửi được sang ChatGPT.');
 
-    await setActionState('✓', 'Đã gửi màn hình Android sang ChatGPT', 1400);
-    return { ok: true, items: data.items || 0 };
+    await setActionState('✓', `Đã gửi màn hình Android sang ChatGPT (${mode})`, 1400);
+    return { ok: true, items: data.items || 0, ocrUsed: !!data.ocrUsed };
   } catch (error) {
     const message = error?.name === 'AbortError'
-      ? 'Bridge/ADB phản hồi quá lâu.'
+      ? 'Bridge/ADB/OCR phản hồi quá lâu.'
       : String(error?.message || error);
     console.error('[Android → ChatGPT]', message);
     await setActionState('!', `Lỗi: ${message}`, 3500);
