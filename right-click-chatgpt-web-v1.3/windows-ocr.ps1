@@ -18,6 +18,19 @@ $null = [Windows.Graphics.Imaging.SoftwareBitmap, Windows.Graphics.Imaging, Cont
 $null = [Windows.Media.Ocr.OcrEngine, Windows.Foundation, ContentType = WindowsRuntime]
 $null = [Windows.Media.Ocr.OcrResult, Windows.Foundation, ContentType = WindowsRuntime]
 
+$asTaskGeneric = [System.WindowsRuntimeSystemExtensions].GetMethods() |
+    Where-Object {
+        $_.Name -eq "AsTask" -and
+        $_.IsGenericMethodDefinition -and
+        $_.GetParameters().Count -eq 1 -and
+        $_.GetParameters()[0].ParameterType.Name -eq "IAsyncOperation`1"
+    } |
+    Select-Object -First 1
+
+if (-not $asTaskGeneric) {
+    throw "Không tìm thấy WindowsRuntime AsTask."
+}
+
 function Await-WinRt {
     param(
         [Parameter(Mandatory = $true)]
@@ -27,21 +40,9 @@ function Await-WinRt {
         [Type]$ResultType
     )
 
-    $asTaskGeneric = [System.WindowsRuntimeSystemExtensions].GetMethods() |
-        Where-Object {
-            $_.Name -eq "AsTask" -and
-            $_.IsGenericMethodDefinition -and
-            $_.GetParameters().Count -eq 1
-        } |
-        Select-Object -First 1
-
-    if (-not $asTaskGeneric) {
-        throw "Không tìm thấy WindowsRuntime AsTask."
-    }
-
-    $asTask = $asTaskGeneric.MakeGenericMethod($ResultType)
+    $asTask = $script:asTaskGeneric.MakeGenericMethod($ResultType)
     $netTask = $asTask.Invoke($null, @($AsyncOperation))
-    $netTask.Wait()
+    $netTask.Wait(-1) | Out-Null
     return $netTask.Result
 }
 
