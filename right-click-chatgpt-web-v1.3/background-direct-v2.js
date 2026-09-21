@@ -27,30 +27,67 @@ async function findChatGPTTab() {
   return tabs.find(tab => tab.active) || tabs[0] || null;
 }
 
+async function tryDeliver(tabId, text) {
+  try {
+    return await chrome.tabs.sendMessage(tabId, {
+      type: 'FILL_AND_SEND_CHATGPT',
+      text,
+      autoSend: true
+    });
+  } catch (_) {
+    return null;
+  }
+}
+
+async function injectDirect(tabId) {
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files: ['chatgpt-direct.js']
+    });
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
 async function deliver(tabId, text) {
-  for (let attempt = 0; attempt < 40; attempt++) {
-    try {
-      const result = await chrome.tabs.sendMessage(tabId, {
-        type: 'FILL_AND_SEND_CHATGPT',
-        text,
-        autoSend: true
-      });
-      if (result?.ok) return result;
-    } catch (_) {}
+  // Fast path: an already-open ChatGPT tab normally responds immediately.
+  let result = await tryDeliver(tabId, text);
+  if (result?.ok) return result;
 
-    if (attempt === 0 || attempt === 8) {
-      try {
-        await chrome.scripting.executeScript({
-          target: { tabId },
-          files: ['chatgpt-direct.js']
-        });
-      } catch (_) {}
+  // If the content script is missing (discarded/reloaded tab), inject it and
+  // retry immediately instead of sleeping first.
+  await injectDirect(tabId);
+  result = await tryDeliver(tabId, text);
+  if (result?.ok) return result;
+
+  // Fallback for a newly-created/reloading ChatGPT tab. Keep retries short in
+  // the first second, where the composer usually becomes available.
+  for (let attempt = 0; attempt < 32; attempt++) {
+    await sleep(attempt < 12 ? 25 : 75);
+
+    result = await tryDeliver(tabId, text);
+    if (result?.ok) return result;
+
+    if (attempt === 10) {
+      await injectDirect(tabId);
     }
-
-    await sleep(attempt < 10 ? 80 : 150);
   }
 
   return { ok: false, error: 'Không thể dán/gửi prompt sang ChatGPT.' };
+}
+
+async function activateAndFocus(tab) {
+  try {
+    const activeTab = await chrome.tabs.update(tab.id, { active: true });
+    try {
+      await chrome.windows.update(activeTab.windowId, { focused: true });
+    } catch (_) {}
+    return activeTab;
+  } catch (_) {
+    return tab;
+  }
 }
 
 async function sendToChatGPT(prompt) {
@@ -68,15 +105,18 @@ async function sendToChatGPT(prompt) {
 
   if (!tab) {
     tab = await chrome.tabs.create({ url: CHATGPT_URL, active: true });
-  } else {
-    tab = await chrome.tabs.update(tab.id, { active: true });
+    return deliver(tab.id, text);
   }
 
-  try {
-    await chrome.windows.update(tab.windowId, { focused: true });
-  } catch (_) {}
+  // Start delivery BEFORE waiting for the tab/window activation. On an already
+  // loaded ChatGPT tab this lets the prompt get pasted/sent while Chrome is
+  // visually switching to that tab.
+  const deliveryPromise = deliver(tab.id, text);
+  const activationPromise = activateAndFocus(tab);
 
-  return deliver(tab.id, text);
+  const result = await deliveryPromise;
+  await activationPromise;
+  return result;
 }
 
 function makePhonePrompt(text) {
@@ -95,7 +135,6 @@ async function readPhoneAndSend() {
   await setActionState('…', 'Đang đọc màn hình Android…');
 
   const controller = new AbortController();
-  // OCR fallback may need a few extra seconds on the first Windows OCR call.
   const timeout = setTimeout(() => controller.abort(), 20000);
 
   try {
