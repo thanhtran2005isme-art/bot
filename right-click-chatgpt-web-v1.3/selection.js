@@ -2,10 +2,15 @@
   if (globalThis.__RCGPT_AUTO_RIGHT_CLICK__) return;
   globalThis.__RCGPT_AUTO_RIGHT_CLICK__ = true;
 
-  let lastText = '';
-  let lastAt = 0;
+  const CACHE_TTL_MS = 15000;
+  const DUPLICATE_WINDOW_MS = 1500;
 
-  function selectedText() {
+  let cachedText = '';
+  let cachedAt = 0;
+  let lastSentText = '';
+  let lastSentAt = 0;
+
+  function readSelectionNow() {
     try {
       const direct = String(window.getSelection?.()?.toString?.() || '').trim();
       if (direct) return direct;
@@ -21,37 +26,81 @@
     return '';
   }
 
-  function sendSelection() {
-    const text = selectedText();
+  function rememberSelection() {
+    const text = readSelectionNow();
+
+    // Do not erase the cache when another extension temporarily clears the
+    // selection while it is enabling copy/right-click.
+    if (!text) return;
+
+    cachedText = text;
+    cachedAt = Date.now();
+  }
+
+  function textForSend() {
+    const liveText = readSelectionNow();
+
+    if (liveText) {
+      cachedText = liveText;
+      cachedAt = Date.now();
+      return liveText;
+    }
+
+    if (cachedText && Date.now() - cachedAt <= CACHE_TTL_MS) {
+      return cachedText;
+    }
+
+    return '';
+  }
+
+  function sendSelection(source = 'right-click-auto') {
+    const text = textForSend();
     if (!text) return;
 
     const now = Date.now();
-    if (text === lastText && now - lastAt < 1200) return;
+    if (text === lastSentText && now - lastSentAt < DUPLICATE_WINDOW_MS) return;
 
-    lastText = text;
-    lastAt = now;
+    lastSentText = text;
+    lastSentAt = now;
 
     chrome.runtime.sendMessage({
       type: 'ASK_CHATGPT_WEB',
       text,
-      source: 'right-click-auto'
+      source
     }).catch(() => {});
   }
 
-  function onRightPointerDown(event) {
-    if (event.button !== 2) return;
-
-    // Capture the right-click before page scripts can swallow contextmenu.
-    // Defer one task so the browser has finished updating the current selection.
-    setTimeout(sendSelection, 0);
+  function rememberSoon() {
+    setTimeout(rememberSelection, 0);
   }
 
-  // Listen on window in the capture phase. This is intentionally earlier than
-  // the old document/contextmenu-only path and works better on interactive sites.
-  window.addEventListener('pointerdown', onRightPointerDown, true);
-  window.addEventListener('mousedown', onRightPointerDown, true);
-  window.addEventListener('contextmenu', sendSelection, true);
+  function onRightButton(event) {
+    if (event.button !== 2) return;
 
-  // Keep the document listener as a fallback for unusual event routing.
-  document.addEventListener('contextmenu', sendSelection, true);
+    // Preserve the selection before Allow Right Click (or the page itself)
+    // has a chance to replace/clear it, then send from the live-or-cached value.
+    rememberSelection();
+    setTimeout(() => sendSelection(`right-click-${event.type}`), 0);
+  }
+
+  function onContextMenu() {
+    rememberSelection();
+    sendSelection('right-click-contextmenu');
+  }
+
+  // Cache text as soon as the user creates a selection. This decouples
+  // sending from whatever another extension does during the right-click.
+  document.addEventListener('selectionchange', rememberSoon, true);
+  document.addEventListener('copy', rememberSelection, true);
+  document.addEventListener('keyup', rememberSoon, true);
+
+  // Multiple independent right-button signals make the extension resilient
+  // when another extension suppresses one particular mouse event.
+  for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'auxclick']) {
+    window.addEventListener(type, onRightButton, true);
+    document.addEventListener(type, onRightButton, true);
+  }
+
+  window.addEventListener('contextmenu', onContextMenu, true);
+  document.addEventListener('contextmenu', onContextMenu, true);
 })();
