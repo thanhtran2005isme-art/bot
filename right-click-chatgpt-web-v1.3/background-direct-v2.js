@@ -52,20 +52,15 @@ async function injectDirect(tabId) {
 }
 
 async function deliver(tabId, text) {
-  // Fast path: an already-open ChatGPT tab normally responds immediately.
   let result = await tryDeliver(tabId, text);
   if (result?.ok) return result;
 
-  // If the content script is missing (discarded/reloaded tab), inject it and
-  // retry immediately instead of sleeping first.
   await injectDirect(tabId);
   result = await tryDeliver(tabId, text);
   if (result?.ok) return result;
 
-  // Fallback for a newly-created/reloading ChatGPT tab. Keep retries short in
-  // the first second, where the composer usually becomes available.
   for (let attempt = 0; attempt < 32; attempt++) {
-    await sleep(attempt < 12 ? 25 : 75);
+    await sleep(attempt < 12 ? 20 : 60);
 
     result = await tryDeliver(tabId, text);
     if (result?.ok) return result;
@@ -78,12 +73,14 @@ async function deliver(tabId, text) {
   return { ok: false, error: 'Không thể dán/gửi prompt sang ChatGPT.' };
 }
 
-async function activateAndFocus(tab) {
+async function activateForPaste(tab) {
   try {
     const activeTab = await chrome.tabs.update(tab.id, { active: true });
-    try {
-      await chrome.windows.update(activeTab.windowId, { focused: true });
-    } catch (_) {}
+
+    // Do not await window focus. The tab is already active, so the content
+    // script can paste immediately while Chrome finishes focusing the window.
+    chrome.windows.update(activeTab.windowId, { focused: true }).catch(() => {});
+
     return activeTab;
   } catch (_) {
     return tab;
@@ -108,15 +105,11 @@ async function sendToChatGPT(prompt) {
     return deliver(tab.id, text);
   }
 
-  // Start delivery BEFORE waiting for the tab/window activation. On an already
-  // loaded ChatGPT tab this lets the prompt get pasted/sent while Chrome is
-  // visually switching to that tab.
-  const deliveryPromise = deliver(tab.id, text);
-  const activationPromise = activateAndFocus(tab);
-
-  const result = await deliveryPromise;
-  await activationPromise;
-  return result;
+  // Contenteditable editing is much faster and more reliable once ChatGPT is
+  // the active tab. Activate first, then paste immediately; do not wait for
+  // a separate window-focus round trip.
+  tab = await activateForPaste(tab);
+  return deliver(tab.id, text);
 }
 
 function makePhonePrompt(text) {

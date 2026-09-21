@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Right Click → ChatGPT Web",
-  "version": "2.4.3",
+  "version": "2.4.4",
   "description": "Bôi đen rồi chuột phải để tự gửi sang ChatGPT Web; đọc màn hình Android qua ADB và tự fallback OCR khi UIAutomator thiếu text.",
   "permissions": ["tabs", "scripting"],
   "host_permissions": [

@@ -45,18 +45,32 @@
     el.dispatchEvent(new Event('change', { bubbles: true }));
   }
 
-  function fill(el, text) {
-    el.focus();
+  function writeContentEditableImmediately(el, text) {
+    const fragment = document.createDocumentFragment();
+    const lines = String(text).split(/\r?\n/);
 
-    if (el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement) {
-      const proto = el instanceof HTMLTextAreaElement
-        ? HTMLTextAreaElement.prototype
-        : HTMLInputElement.prototype;
-      const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
-      if (!setter) throw new Error('Không có value setter.');
-      setter.call(el, text);
-      fireInput(el, text);
-      return;
+    for (const line of lines) {
+      const p = document.createElement('p');
+      if (line) p.textContent = line;
+      else p.appendChild(document.createElement('br'));
+      fragment.appendChild(p);
+    }
+
+    el.replaceChildren(fragment);
+    fireInput(el, text);
+
+    try {
+      el.focus({ preventScroll: true });
+    } catch (_) {
+      el.focus();
+    }
+  }
+
+  function fallbackExecCommand(el, text) {
+    try {
+      el.focus({ preventScroll: true });
+    } catch (_) {
+      el.focus();
     }
 
     const selection = window.getSelection();
@@ -65,17 +79,41 @@
     selection.removeAllRanges();
     selection.addRange(range);
 
-    let inserted = false;
     try {
-      inserted = document.execCommand('insertText', false, text);
-    } catch (_) {}
+      return document.execCommand('insertText', false, text);
+    } catch (_) {
+      return false;
+    }
+  }
 
-    if (!inserted || !sameText(valueOf(el), text)) {
-      el.replaceChildren();
-      const p = document.createElement('p');
-      p.textContent = text;
-      el.appendChild(p);
+  function fill(el, text) {
+    if (el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement) {
+      try {
+        el.focus({ preventScroll: true });
+      } catch (_) {
+        el.focus();
+      }
+
+      const proto = el instanceof HTMLTextAreaElement
+        ? HTMLTextAreaElement.prototype
+        : HTMLInputElement.prototype;
+      const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+      if (!setter) throw new Error('Không có value setter.');
+
+      setter.call(el, text);
       fireInput(el, text);
+      return;
+    }
+
+    // Fast path for ChatGPT's contenteditable composer: paint the text into the
+    // DOM synchronously so it is visible immediately after the tab switch.
+    // Input events then synchronize ChatGPT's editor state.
+    writeContentEditableImmediately(el, text);
+
+    // Only use execCommand if the direct write did not stick. Keeping it out of
+    // the normal path removes the largest paste latency on an activated tab.
+    if (!sameText(valueOf(el), text)) {
+      fallbackExecCommand(el, text);
     }
   }
 
@@ -144,7 +182,7 @@
     el.dispatchEvent(new KeyboardEvent('keyup', init));
   }
 
-  async function waitForEditor(timeoutMs = 3500) {
+  async function waitForEditor(timeoutMs = 2500) {
     const immediate = editor();
     if (immediate) return immediate;
 
@@ -176,13 +214,16 @@
   async function ensureFilled(el, text) {
     if (sameText(valueOf(el), text)) return true;
 
-    // React normally reflects the input synchronously. These tiny retries cover
-    // the rare render where it lands one task later without adding visible lag.
-    for (const delay of [0, 10, 20, 35]) {
-      if (delay) await sleep(delay);
-      else await Promise.resolve();
-
+    // One very short synchronization window only. The visual DOM write above
+    // is synchronous, so normal requests should never enter this loop.
+    for (const delay of [5, 10, 20]) {
+      await sleep(delay);
       if (sameText(valueOf(el), text)) return true;
+    }
+
+    if (fallbackExecCommand(el, text)) {
+      fireInput(el, text);
+      return sameText(valueOf(el), text);
     }
 
     return false;
@@ -191,7 +232,6 @@
   async function fastSubmit(el) {
     const wasGenerating = isGenerating();
 
-    // Give ChatGPT one task to enable its send control after the input event.
     await Promise.resolve();
 
     let button = sendButton(el);
@@ -200,11 +240,9 @@
       if (await waitForSent(wasGenerating, 140)) return true;
     }
 
-    // Keyboard submission is the fastest independent fallback.
     pressEnter(el);
     if (await waitForSent(wasGenerating, 180)) return true;
 
-    // React may enable the button just after the first attempts.
     button = sendButton(el);
     if (button) {
       button.click();
