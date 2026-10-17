@@ -381,20 +381,32 @@
         url.searchParams.set('pageSize', '1000');
         if (pageToken) url.searchParams.set('pageToken', pageToken);
 
-        const response = await fetch(url.toString(), {
-          method: 'GET',
-          headers: { 'x-goog-api-key': apiKey },
-          cache: 'no-store'
-        });
-
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 15000);
+        let response;
         let data = {};
         try {
-          data = await response.json();
-        } catch (_) {}
+          response = await fetch(url.toString(), {
+            method: 'GET',
+            headers: { 'x-goog-api-key': apiKey },
+            cache: 'no-store',
+            signal: controller.signal
+          });
+          try {
+            data = await response.json();
+          } catch (_) {}
 
-        if (!response.ok) {
-          const details = data?.error?.message || 'HTTP ' + response.status;
-          throw new Error(details);
+          if (!response.ok) {
+            const details = data?.error?.message || 'HTTP ' + response.status;
+            throw new Error(details);
+          }
+        } catch (error) {
+          if (error?.name === 'AbortError') {
+            throw new Error('Lấy danh sách model quá 15 giây. Kiểm tra kết nối rồi thử lại.');
+          }
+          throw error;
+        } finally {
+          clearTimeout(timeout);
         }
 
         for (const model of data.models || []) {
