@@ -6,7 +6,7 @@ Chrome Extension Manifest V3 với popup để chọn một chế độ mặc đ
 
 Bấm icon extension để mở popup và **tích chọn một trong ba chế độ**:
 1. **ChatGPT Web** — gửi văn bản đang bôi đen sang ChatGPT và tự gửi.
-2. **Gemini → Telegram** — dùng Gemini API trả lời, sau đó gửi cả câu hỏi và đáp án tới Telegram.
+2. **Gemini → Telegram** — dùng Gemini API trả lời, chỉ gửi đáp án đúng kèm nội dung phương án (không gửi lại câu hỏi hoặc giải thích) tới Telegram.
 3. **Đọc màn hình Android** — đọc nội dung điện thoại qua ADB/OCR rồi gửi sang ChatGPT.
 
 Lựa chọn được lưu trong `chrome.storage.local` và giữ nguyên cho những lần sau. Khi sử dụng hằng ngày, không cần mở popup để chọn lại: **bôi đen văn bản trên trang web rồi nhấn chuột phải**, extension tự chạy chế độ đang lưu. Khi đang ở chế độ Android, thao tác bôi đen + chuột phải là thao tác kích hoạt; nội dung được đọc là màn hình điện thoại Android, không phải đoạn văn bản trên máy tính. Chuột phải ở nơi không có văn bản bôi đen vẫn hiện menu ngữ cảnh bình thường.
