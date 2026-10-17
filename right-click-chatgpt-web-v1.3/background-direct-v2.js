@@ -2,6 +2,10 @@ importScripts('gemini-delivery.js');
 
 const CHATGPT_URL = 'https://chatgpt.com/';
 const BRIDGE_URL = 'http://127.0.0.1:8765/screen-text';
+const MENU_ROOT = 'rcgpt-assistant-root';
+const MENU_CHATGPT = 'rcgpt-send-chatgpt';
+const MENU_GEMINI_TELEGRAM = 'rcgpt-gemini-telegram';
+const MENU_ANDROID_OCR = 'rcgpt-android-ocr';
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 let lastPrompt = '';
@@ -17,10 +21,99 @@ async function setActionState(text, title, clearAfter = 0) {
   if (clearAfter > 0) {
     setTimeout(() => {
       chrome.action.setBadgeText({ text: '' }).catch(() => {});
-      chrome.action.setTitle({ title: 'Đọc màn hình điện thoại → ChatGPT' }).catch(() => {});
+      chrome.action.setTitle({ title: 'Trợ lý AI: ChatGPT, Gemini → Telegram, Android OCR' }).catch(() => {});
     }, clearAfter);
   }
 }
+
+function createContextMenus() {
+  chrome.contextMenus.removeAll(() => {
+    if (chrome.runtime.lastError) {
+      console.warn('[Context menu]', chrome.runtime.lastError.message);
+      return;
+    }
+
+    chrome.contextMenus.create({
+      id: MENU_ROOT,
+      title: 'Trợ lý AI',
+      contexts: ['page', 'selection']
+    });
+
+    chrome.contextMenus.create({
+      id: MENU_CHATGPT,
+      parentId: MENU_ROOT,
+      title: '1. Gửi văn bản sang ChatGPT Web',
+      contexts: ['selection']
+    });
+
+    chrome.contextMenus.create({
+      id: MENU_GEMINI_TELEGRAM,
+      parentId: MENU_ROOT,
+      title: '2. Gemini trả lời → Telegram',
+      contexts: ['selection']
+    });
+
+    chrome.contextMenus.create({
+      id: MENU_ANDROID_OCR,
+      parentId: MENU_ROOT,
+      title: '3. Đọc màn hình Android → ChatGPT',
+      contexts: ['page', 'selection']
+    });
+  });
+}
+
+chrome.runtime.onInstalled.addListener(createContextMenus);
+chrome.runtime.onStartup.addListener(createContextMenus);
+
+async function getSelectedContextText(info, tab) {
+  const directText = String(info?.selectionText || '').trim();
+  if (directText) return directText;
+  if (!tab?.id) return '';
+
+  try {
+    const options = Number.isInteger(info?.frameId) ? { frameId: info.frameId } : undefined;
+    const reply = options
+      ? await chrome.tabs.sendMessage(tab.id, { type: 'GET_SELECTED_TEXT' }, options)
+      : await chrome.tabs.sendMessage(tab.id, { type: 'GET_SELECTED_TEXT' });
+    return String(reply?.text || '').trim();
+  } catch (_) {
+    return '';
+  }
+}
+
+async function showMenuError(message) {
+  console.error('[Right Click AI]', message);
+  await setActionState('!', message, 6000);
+}
+
+chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+  if (info.menuItemId === MENU_ANDROID_OCR) {
+    readPhoneAndSend().catch(error => showMenuError(String(error?.message || error)));
+    return;
+  }
+
+  if (info.menuItemId !== MENU_CHATGPT && info.menuItemId !== MENU_GEMINI_TELEGRAM) {
+    return;
+  }
+
+  const text = await getSelectedContextText(info, tab);
+  if (!text) {
+    await showMenuError('Không lấy được văn bản đã chọn. Hãy bôi đen câu hỏi rồi mở lại menu.');
+    return;
+  }
+
+  if (info.menuItemId === MENU_CHATGPT) {
+    const result = await sendToChatGPT(text);
+    if (!result?.ok) await showMenuError(result?.error || 'Không gửi được sang ChatGPT Web.');
+    return;
+  }
+
+  if (info.menuItemId === MENU_GEMINI_TELEGRAM) {
+    globalThis.RCGPTGemini.handleGeminiDelivery(text).catch(async error => {
+      await showMenuError(String(error?.message || error));
+    });
+  }
+});
 
 async function findChatGPTTab() {
   const tabs = await chrome.tabs.query({
