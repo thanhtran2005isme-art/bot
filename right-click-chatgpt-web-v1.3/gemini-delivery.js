@@ -63,7 +63,7 @@
           body: JSON.stringify({
             systemInstruction: {
               parts: [{
-                text: 'Bạn là trợ lý trả lời câu hỏi bằng tiếng Việt. Trả lời trực tiếp, chính xác và ngắn gọn. Nếu là câu hỏi trắc nghiệm, nêu rõ đáp án (A/B/C/D nếu có) rồi giải thích ngắn. Nếu đề bài thiếu dữ kiện hoặc không chắc chắn, nói rõ thay vì đoán.'
+                text: 'Bạn là trợ lý chọn và trả lời đáp án bằng tiếng Việt. Chỉ xuất đáp án cuối cùng, tuyệt đối không nhắc lại câu hỏi, không mở đầu như 'Đáp án đúng là', không giải thích, không trình bày các bước suy luận, không thêm lời dẫn. Với câu hỏi trắc nghiệm, chỉ ghi chữ cái và đầy đủ nội dung của phương án đúng theo dạng 'A. nội dung phương án'. Với câu hỏi không phải trắc nghiệm, chỉ ghi câu trả lời trực tiếp ngắn gọn. Nếu không đủ dữ kiện để xác định đáp án, chỉ ghi 'Không đủ dữ kiện'.'
               }]
             },
             contents: [{
@@ -72,7 +72,7 @@
             }],
             generationConfig: {
               temperature: 0.2,
-              maxOutputTokens: 1800
+              maxOutputTokens: 300
             }
           }),
           signal: controller.signal
@@ -100,9 +100,17 @@
     }
   }
 
-  function makeMessage(question, answer) {
-    return 'CÂU HỎI\n' + String(question || '').trim() +
-      '\n\nTRẢ LỜI GEMINI\n' + String(answer || '').trim();
+  function makeMessage(answer) {
+    let text = String(answer || '').trim();
+
+    // Defensively remove common explanation sections in case a model ignores the
+    // strict answer-only instruction.
+    text = text.replace(/\n\s*(?:\*{0,2}\s*)?(?:giải thích|lý do|giải thích thêm|explanation|reasoning)\s*:?\s*(?:\*{0,2})[\s\S]*$/i, '');
+    // Remove common lead-ins so a multiple-choice reply is just "A. option text".
+    text = text.replace(/^\s*(?:(?:đáp án đúng|đáp án|trả lời)\s*(?:là)?\s*:?\s*)/i, '');
+    // Remove a single outer pair of Markdown bold markers and surrounding whitespace.
+    text = text.trim().replace(/^\*\*(.*?)\*\*$/s, '$1').trim();
+    return text;
   }
 
   function splitMessage(text, maxLength) {
@@ -153,8 +161,8 @@
     const settings = await getSettings();
     const answer = await askGemini(text, settings);
     await setGeminiState('→', 'Gemini đã trả lời. Đang gửi qua Telegram…', '#0f766e', 0);
-    await sendTelegram(settings, makeMessage(text, answer));
-    await setGeminiState('✓', 'Đã gửi câu hỏi và câu trả lời qua Telegram', '#15803d', 3000);
+    await sendTelegram(settings, makeMessage(answer));
+    await setGeminiState('✓', 'Đã gửi đáp án qua Telegram', '#15803d', 3000);
     return { ok: true, targets: ['Telegram'] };
   }
 
