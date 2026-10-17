@@ -1,55 +1,45 @@
-# Right Click → ChatGPT Web + Gemini Delivery
+# Right Click → ChatGPT Web + Gemini → Telegram
 
-Chrome Extension Manifest V3 để gửi nhanh văn bản trên web sang ChatGPT Web, hoặc dùng Gemini API để trả lời câu hỏi rồi chuyển kết quả qua Telegram hay Zalo Official Account (OA). Extension còn hỗ trợ đọc text trên màn hình Android qua ADB/OCR.
+Chrome Extension Manifest V3 để gửi văn bản trên web sang ChatGPT Web, hoặc gọi Gemini API trả lời câu hỏi đã bôi đen rồi gửi câu hỏi cùng lời giải tới Telegram. Extension vẫn hỗ trợ đọc màn hình Android qua ADB/OCR.
 
-## 1. Gửi văn bản trên web sang ChatGPT
+## 1. Gửi văn bản sang ChatGPT Web
 
 1. Cài extension bằng **Load unpacked**.
 2. Đăng nhập ChatGPT tại https://chatgpt.com/.
-3. Bôi đen văn bản trên trang web.
-4. Nhấn chuột phải.
-5. Extension mở/focus ChatGPT, điền nội dung và tự gửi.
+3. Bôi đen văn bản trên website rồi nhấn chuột phải.
+4. Extension chuyển sang ChatGPT, điền nội dung và tự gửi.
 
-Chuột phải thông thường vẫn giữ cách hoạt động này.
+Chuột phải bình thường vẫn sử dụng luồng này.
 
-## 2. Alt + chuột phải → Gemini → Telegram / Zalo OA
-
-Luồng mới gửi câu hỏi đã bôi đen tới Gemini API, lấy câu trả lời rồi chuyển cả câu hỏi và lời giải sang kênh nhắn tin đã cấu hình.
+## 2. Alt + chuột phải → Gemini → Telegram
 
 ### Cấu hình Gemini
 
 1. Mở `chrome://extensions/`.
-2. Chọn extension này → **Details** → **Extension options**.
-3. Dán Gemini API key lấy từ Google AI Studio.
-4. Model mặc định là `gemini-3.8-flash`; đổi model trong Options nếu cần.
+2. Chọn extension → **Details** → **Extension options**.
+3. Dán Gemini API key lấy từ [Google AI Studio](https://aistudio.google.com/apikey).
+4. Model mặc định là `gemini-3.8-flash`; đổi trong Options nếu API key của bạn không có quyền truy cập model đó.
 
-### Gửi qua Telegram
+### Cấu hình Telegram
 
-1. Tạo bot bằng [@BotFather](https://t.me/BotFather) và lấy Bot Token.
-2. Lấy Chat ID của cuộc trò chuyện hoặc nhóm mà bot có thể gửi tin nhắn.
-3. Nhập Bot Token và Chat ID trong Extension options.
-4. Chọn **Telegram** ở mục kênh nhận kết quả.
+1. Mở Telegram và chat với [@BotFather](https://t.me/BotFather).
+2. Dùng lệnh `/newbot` để tạo bot và lấy Bot Token.
+3. Mở cuộc trò chuyện với bot mới tạo và gửi `/start`.
+4. Lấy Chat ID của cuộc trò chuyện hoặc nhóm mà bot được phép gửi tin.
+5. Nhập Bot Token và Chat ID trong Extension options rồi bấm **Lưu cấu hình**.
 
-### Gửi qua Zalo OA
+### Sử dụng
 
-1. Cần có Zalo Official Account, Access Token hợp lệ và `user_id` của người nhận đủ điều kiện nhận tin qua OA API.
-2. Nhập OA Access Token và Zalo user ID trong Extension options.
-3. Chọn **Zalo Official Account (OA)** ở mục kênh nhận kết quả.
+1. Bôi đen câu hỏi trên website.
+2. Giữ **Alt** rồi nhấn **chuột phải**.
+3. Extension gửi câu hỏi đến Gemini, rồi gửi cả câu hỏi và câu trả lời đến Telegram.
+4. Xem badge icon extension để theo dõi trạng thái; khi có lỗi, di chuột lên icon để đọc thông báo.
 
-**Lưu ý:** Zalo OA API không phải API nhắn tin trực tiếp cho bất kỳ tài khoản Zalo cá nhân nào. Quyền gửi tin phụ thuộc điều kiện và chính sách của Zalo OA. Có thể chọn gửi cả Telegram và Zalo OA nếu đã cấu hình cả hai kênh.
-
-### Cách dùng
-
-1. Bôi đen câu hỏi trên một trang web.
-2. Giữ phím **Alt** rồi nhấn **chuột phải**.
-3. Extension gọi Gemini và gửi câu hỏi cùng câu trả lời đến kênh đã chọn.
-4. Nhìn badge trên icon extension để biết trạng thái; khi lỗi, di chuột lên icon để đọc thông báo.
-
-Phím tắt mới không thay đổi luồng chuột phải thông thường → ChatGPT Web.
+Luồng Alt + chuột phải độc lập với luồng chuột phải bình thường → ChatGPT Web.
 
 ## 3. Đọc text màn hình Android / scrcpy
 
-Bridge dùng ADB để chụp màn hình Android và mặc định dùng Tesseract OCR để nhận dạng chữ. Nếu chế độ OCR nhanh lỗi, bridge thử phương án UIAutomator kết hợp OCR.
+Bridge dùng ADB để chụp màn hình Android và mặc định dùng Tesseract OCR để nhận dạng chữ. Nếu OCR nhanh lỗi, bridge thử phương án UIAutomator kết hợp OCR.
 
 ### Chuẩn bị
 
@@ -58,7 +48,7 @@ Bridge dùng ADB để chụp màn hình Android và mặc định dùng Tessera
 - Có Python 3 trên Windows.
 - Có `adb.exe` trong PATH, trong thư mục extension, Android SDK, hoặc đặt biến `ADB_PATH` trỏ tới `adb.exe`.
 - Cài Tesseract OCR kèm dữ liệu tiếng Việt bằng `install-vietnamese-ocr.bat`.
-- Có thể mở scrcpy song song bình thường.
+- Có thể mở scrcpy song song.
 
 Nếu `scrcpy.exe` nằm trong PATH và `adb.exe` ở cùng thư mục với scrcpy, `start-bridge.bat` sẽ cố tự tìm ADB.
 
@@ -72,7 +62,7 @@ Bridge lắng nghe tại `127.0.0.1:8765`; extension gọi endpoint đọc text 
 
 ### Nhiều thiết bị ADB
 
-Nếu đang cắm nhiều điện thoại, đặt biến môi trường trước khi chạy bridge:
+Nếu có nhiều điện thoại, đặt biến môi trường trước khi chạy bridge:
 
 ```bat
 set ANDROID_SERIAL=SERIAL_CUA_MAY
@@ -90,18 +80,18 @@ start-bridge.bat
 
 - `manifest.json`: cấu hình extension, quyền host và trang Options.
 - `background-direct-v2.js`: điều phối ChatGPT Web và bridge Android.
-- `selection.js`: lấy text đang bôi đen; chuột phải thường gửi ChatGPT, Alt + chuột phải gọi Gemini.
+- `selection.js`: chuột phải thường gửi ChatGPT; Alt + chuột phải gọi Gemini.
 - `chatgpt-direct.js`: điền prompt và bấm gửi trên ChatGPT Web.
-- `gemini-delivery.js`: gọi Gemini API, gửi Telegram Bot API hoặc Zalo OA API.
-- `options.html` / `options.js`: cấu hình API key, model và kênh nhận tin.
+- `gemini-delivery.js`: gọi Gemini API, gửi tin bằng Telegram Bot API.
+- `options.html` / `options.js`: cấu hình Gemini API key, model, Telegram Bot Token và Chat ID.
 - `floating-button.js`: nút nổi 📱 để đọc màn hình Android.
-- `android-bridge.py`: bridge local giao tiếp ADB, chụp màn hình và OCR.
+- `android-bridge.py`: bridge local giao tiếp ADB và OCR.
 - `install-vietnamese-ocr.bat`: cài Tesseract và dữ liệu OCR tiếng Việt.
 - `start-bridge.bat`: khởi động bridge trên Windows.
 
 ## Bảo mật
 
-- API key/token được cấu hình trong Options và lưu bằng `chrome.storage.local`; không commit thông tin thật vào repo.
-- Không chia sẻ Bot Token, Gemini API key hoặc Zalo OA Access Token.
-- Extension hiện có quyền chạy trên phạm vi website rộng (`<all_urls>`) để nhận thao tác bôi đen; chỉ cài bản bạn tin tưởng.
-- Bridge Android chỉ bind vào loopback `127.0.0.1`, nhưng nên giữ extension và các token cập nhật, riêng tư.
+- API key và Bot Token được nhập ở Options và lưu bằng `chrome.storage.local`; không commit thông tin thật vào repo.
+- Không chia sẻ Gemini API key hoặc Telegram Bot Token.
+- Extension dùng quyền `<all_urls>` để nhận thao tác bôi đen trên website; chỉ cài bản bạn tin tưởng.
+- Bridge Android chỉ bind vào loopback `127.0.0.1`.
