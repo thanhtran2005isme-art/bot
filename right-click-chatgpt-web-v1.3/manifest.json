@@ -1,9 +1,14 @@
 {
   "manifest_version": 3,
   "name": "Right Click → ChatGPT Web",
-  "version": "2.6.2",
-  "description": "Bôi đen văn bản rồi chuột phải để chọn ChatGPT Web hoặc Gemini → Telegram; hỗ trợ đọc màn hình Android bằng ADB/OCR.",
-  "permissions": ["tabs", "scripting", "storage", "contextMenus"],
+  "version": "2.6.3",
+  "description": "Chọn một chế độ AI mặc định; bôi đen văn bản rồi chuột phải để chạy ChatGPT Web, Gemini → Telegram hoặc Android ADB/OCR.",
+  "permissions": [
+    "tabs",
+    "scripting",
+    "storage",
+    "contextMenus"
+  ],
   "host_permissions": [
     "<all_urls>",
     "http://127.0.0.1:8765/*",
@@ -16,28 +21,44 @@
   },
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
-      "js": ["floating-button.js"],
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "floating-button.js"
+      ],
       "run_at": "document_start",
       "all_frames": false
     },
     {
-      "matches": ["<all_urls>"],
-      "exclude_matches": ["https://chatgpt.com/*", "https://chat.openai.com/*"],
-      "js": ["selection.js"],
+      "matches": [
+        "<all_urls>"
+      ],
+      "exclude_matches": [
+        "https://chatgpt.com/*",
+        "https://chat.openai.com/*"
+      ],
+      "js": [
+        "selection.js"
+      ],
       "run_at": "document_start",
       "all_frames": true,
       "match_about_blank": true,
       "match_origin_as_fallback": true
     },
     {
-      "matches": ["https://chatgpt.com/*", "https://chat.openai.com/*"],
-      "js": ["chatgpt-direct.js"],
+      "matches": [
+        "https://chatgpt.com/*",
+        "https://chat.openai.com/*"
+      ],
+      "js": [
+        "chatgpt-direct.js"
+      ],
       "run_at": "document_start"
     }
   ],
   "action": {
-    "default_title": "Mở lựa chọn AI và cài đặt",
+    "default_title": "Mở popup để đổi chế độ AI / cài đặt",
     "default_popup": "popup.html"
   }
 }
