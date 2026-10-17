@@ -81,7 +81,7 @@
     const model = String(settings.geminiModel || DEFAULT_MODEL).trim();
     if (!/^[A-Za-z0-9._-]+$/.test(model)) throw new Error('Tên Gemini model không hợp lệ.');
 
-    const isGemini3OrLater = /^gemini-(?:3(?:\\.\\d+)?|4)(?:-|$)/i.test(model);
+    const isGemini3OrLater = /^gemini-(?:3(?:\.\d+)?|4)(?:-|$)/i.test(model);
     const generationConfig = { maxOutputTokens: 512 };
     if (isGemini3OrLater) {
       // Lower thinking effort reduces latency for short, answer-only requests.
