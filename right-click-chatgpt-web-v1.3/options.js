@@ -30,6 +30,13 @@
     element.style.color = isError ? '#dc2626' : '#16a34a';
   }
 
+  function isTextResponseModel(model) {
+    const id = String(model?.id || '').toLowerCase();
+    // These IDs are specialized for image generation, audio, embeddings, live/audio
+    // streams, robotics, or video; they're not suitable for this text-answer workflow.
+    return !/(?:^|[-.])(?:image|tts|transcribe|audio|live|embedding|embed|computer-use|robotics|nano-banana|imagen|veo|lyria)(?:[-.]|$)/i.test(id);
+  }
+
   function apiErrorHint(status) {
     switch (Number(status)) {
       case 400: return 'Kiểm tra yêu cầu/tham số của model.';
@@ -70,53 +77,74 @@
     chrome.storage.local.get({ geminiLastStatus: null }, values => renderLastStatus(values.geminiLastStatus));
   }
 
-  async function requestModelTest(model, apiKey, timeoutMs = 15000) {
-    const abort = new AbortController();
-    const timeout = setTimeout(() => abort.abort(), timeoutMs);
-    try {
-      const response = await fetch(
-        'https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent',
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
-          body: JSON.stringify({
-            contents: [{ role: 'user', parts: [{ text: 'Reply with only OK.' }] }],
-            generationConfig: { temperature: 0, maxOutputTokens: 8 }
-          }),
-          signal: abort.signal,
-          cache: 'no-store'
+  async function requestModelTest(model, apiKey, timeoutMs = 20000) {
+    async function sendTest(maxOutputTokens) {
+      const abort = new AbortController();
+      const timeout = setTimeout(() => abort.abort(), timeoutMs);
+      try {
+        const response = await fetch(
+          'https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+            body: JSON.stringify({
+              contents: [{ role: 'user', parts: [{ text: 'Reply with the single word OK. Do not explain.' }] }],
+              generationConfig: { temperature: 0, maxOutputTokens }
+            }),
+            signal: abort.signal,
+            cache: 'no-store'
+          }
+        );
+
+        let data = {};
+        try { data = await response.json(); } catch (_) {}
+        if (!response.ok) {
+          const detail = data?.error?.message || data?.message || ('HTTP ' + response.status);
+          const apiState = data?.error?.status ? ' (' + data.error.status + ')' : '';
+          const message = 'Gemini API HTTP ' + response.status + apiState + ': ' + detail +
+            (apiErrorHint(response.status) ? ' ' + apiErrorHint(response.status) : '');
+          const kind = response.status === 429 ? 'quota'
+            : response.status >= 500 ? 'temporary'
+            : 'error';
+          return { ok: false, kind, message };
         }
-      );
 
-      let data = {};
-      try { data = await response.json(); } catch (_) {}
-      if (!response.ok) {
-        const detail = data?.error?.message || data?.message || ('HTTP ' + response.status);
-        const apiState = data?.error?.status ? ' (' + data.error.status + ')' : '';
-        throw new Error('Gemini API HTTP ' + response.status + apiState + ': ' + detail +
-          (apiErrorHint(response.status) ? ' ' + apiErrorHint(response.status) : ''));
+        const candidate = data?.candidates?.[0];
+        const reply = (candidate?.content?.parts || [])
+          .map(part => String(part?.text || '')).join('').trim();
+        if (!reply) {
+          const reason = data?.promptFeedback?.blockReason || candidate?.finishReason || 'không có nội dung trả lời';
+          return { ok: false, kind: reason === 'MAX_TOKENS' ? 'token-limit' : 'error',
+            message: 'Model nhận request nhưng không trả về text: ' + reason, finishReason: reason };
+        }
+        return { ok: true, reply };
+      } catch (error) {
+        let message = error?.name === 'AbortError'
+          ? 'Hết thời gian chờ (' + Math.round(timeoutMs / 1000) + ' giây).'
+          : String(error?.message || error);
+        if (/Failed to fetch|NetworkError|Load failed/i.test(message)) {
+          message = 'Lỗi mạng/CORS khi kết nối Gemini API. ' + message;
+        }
+        const kind = /hết thời gian|network|cors|failed to fetch|load failed/i.test(message) ? 'temporary' : 'error';
+        return { ok: false, kind, message };
+      } finally {
+        clearTimeout(timeout);
       }
-
-      const reply = (data?.candidates?.[0]?.content?.parts || [])
-        .map(part => String(part?.text || '')).join('').trim();
-      if (!reply) {
-        const reason = data?.promptFeedback?.blockReason || data?.candidates?.[0]?.finishReason || 'không có nội dung trả lời';
-        throw new Error('Model nhận request nhưng không trả lời: ' + reason);
-      }
-      return { ok: true, reply };
-    } catch (error) {
-      let message = error?.name === 'AbortError'
-        ? 'Hết thời gian chờ (' + Math.round(timeoutMs / 1000) + ' giây).'
-        : String(error?.message || error);
-      if (/Failed to fetch|NetworkError|Load failed/i.test(message)) {
-        message = 'Lỗi mạng/CORS khi kết nối Gemini API. ' + message;
-      }
-      return { ok: false, message };
-    } finally {
-      clearTimeout(timeout);
     }
-  }
 
+    // Eight tokens was too small for models with internal reasoning and caused
+    // false negatives (MAX_TOKENS). Start with a larger output budget, then retry
+    // once with more room if the model specifically reports MAX_TOKENS.
+    let result = await sendTest(256);
+    if (!result.ok && result.finishReason === 'MAX_TOKENS') {
+      result = await sendTest(1024);
+    }
+    if (!result.ok && result.kind === 'token-limit') {
+      result.kind = 'temporary';
+      result.message += ' Đã thử lại với 1024 token nhưng vẫn không tạo được phản hồi thử.';
+    }
+    return result;
+  }
   async function testSelectedModel() {
     const apiKey = $('geminiApiKey').value.trim();
     const model = String(modelSelect.value || '').trim();
@@ -157,18 +185,28 @@
   function renderBatchResults() {
     const workingList = $('workingModelsList');
     const failedList = $('failedModelsList');
-    const working = Array.from(batchResults.entries()).filter(([, result]) => result.ok);
-    const failed = Array.from(batchResults.entries()).filter(([, result]) => !result.ok);
+    const deferredList = $('deferredModelsList');
+    const entries = Array.from(batchResults.entries());
+    const working = entries.filter(([, result]) => result.ok);
+    const deferred = entries.filter(([, result]) => !result.ok && ['quota', 'temporary'].includes(result.kind));
+    const failed = entries.filter(([, result]) => !result.ok && !['quota', 'temporary'].includes(result.kind));
+
     $('workingModelCount').textContent = String(working.length);
     $('failedModelCount').textContent = String(failed.length);
+    $('deferredModelCount').textContent = String(deferred.length);
     workingList.replaceChildren();
     failedList.replaceChildren();
+    deferredList.replaceChildren();
 
-    if (!working.length) {
+    function appendEmpty(list, message) {
       const empty = document.createElement('div');
       empty.className = 'empty-list';
-      empty.textContent = batchTesting ? 'Đang kiểm tra… model chạy được sẽ hiện ở đây.' : 'Chưa có model nào chạy thành công.';
-      workingList.appendChild(empty);
+      empty.textContent = message;
+      list.appendChild(empty);
+    }
+
+    if (!working.length) {
+      appendEmpty(workingList, batchTesting ? 'Đang kiểm tra… model chạy được sẽ hiện ở đây.' : 'Chưa có model nào chạy thành công.');
     }
 
     for (const [modelId, result] of working) {
@@ -178,7 +216,7 @@
       const title = document.createElement('strong');
       title.textContent = '✓ ' + modelId;
       const detail = document.createElement('small');
-      detail.textContent = 'Chạy được với API key này. Bấm để chọn model.';
+      detail.textContent = 'Trả về text thành công. Bấm để chọn model.';
       button.append(title, detail);
       button.addEventListener('click', () => {
         ensureModelOption(modelId);
@@ -188,13 +226,7 @@
       workingList.appendChild(button);
     }
 
-    if (!failed.length) {
-      const empty = document.createElement('div');
-      empty.className = 'empty-list';
-      empty.textContent = batchTesting ? 'Lỗi sẽ hiển thị tại đây.' : 'Chưa có model lỗi.';
-      failedList.appendChild(empty);
-    }
-
+    if (!failed.length) appendEmpty(failedList, batchTesting ? 'Lỗi cấu hình/model sẽ hiện ở đây.' : 'Chưa có lỗi xác định.');
     for (const [modelId, result] of failed) {
       const row = document.createElement('div');
       row.className = 'model-row failure';
@@ -205,8 +237,19 @@
       row.append(title, detail);
       failedList.appendChild(row);
     }
-  }
 
+    if (!deferred.length) appendEmpty(deferredList, batchTesting ? 'Quota/lỗi tạm thời sẽ hiện ở đây.' : 'Không có model nào đang chờ thử lại.');
+    for (const [modelId, result] of deferred) {
+      const row = document.createElement('div');
+      row.className = 'model-row';
+      const title = document.createElement('strong');
+      title.textContent = (result.kind === 'quota' ? '◷ QUOTA ' : '⚠ TẠM THỜI ') + modelId;
+      const detail = document.createElement('small');
+      detail.textContent = result.message || 'Chưa xác định được khả năng chạy.';
+      row.append(title, detail);
+      deferredList.appendChild(row);
+    }
+  }
   async function testAllModels() {
     const apiKey = $('geminiApiKey').value.trim();
     if (!apiKey) {
@@ -260,9 +303,12 @@
     try {
       const workerCount = Math.min(MODEL_TEST_CONCURRENCY, total);
       await Promise.all(Array.from({ length: workerCount }, () => worker()));
-      const workingCount = Array.from(batchResults.values()).filter(item => item.ok).length;
-      const failedCount = total - workingCount;
-      const summary = 'Đã kiểm tra xong ' + total + ' model. Chạy được: ' + workingCount + ', lỗi/không khả dụng: ' + failedCount + '.';
+      const values = Array.from(batchResults.values());
+      const workingCount = values.filter(item => item.ok).length;
+      const deferredCount = values.filter(item => !item.ok && ['quota', 'temporary'].includes(item.kind)).length;
+      const failedCount = total - workingCount - deferredCount;
+      const summary = 'Đã kiểm tra xong ' + total + ' model văn bản. Chạy được: ' + workingCount +
+        ', lỗi xác định: ' + failedCount + ', quota/lỗi tạm thời: ' + deferredCount + '.';
       setStatus(modelStatus, summary, workingCount === 0);
       await persistLastStatus({
         ok: workingCount > 0,
@@ -355,6 +401,8 @@
           const id = String(model.name || '').replace(/^models\//, '');
           const methods = Array.isArray(model.supportedGenerationMethods) ? model.supportedGenerationMethods : [];
           if (!id.toLowerCase().includes('gemini') || !methods.includes('generateContent')) continue;
+          // This extension needs text answers, not image/audio/embedding/robotics output.
+          if (!isTextResponseModel({ id })) continue;
           models.push({
             id,
             name: String(model.displayName || id),
