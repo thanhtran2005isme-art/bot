@@ -3,6 +3,7 @@
   const SETTINGS_DEFAULTS = {
     geminiApiKey: '',
     geminiModel: DEFAULT_MODEL,
+    geminiThinkingLevel: 'low',
     telegramBotToken: '',
     telegramChatId: ''
   };
@@ -77,11 +78,19 @@
     chrome.storage.local.get({ geminiLastStatus: null }, values => renderLastStatus(values.geminiLastStatus));
   }
 
-  async function requestModelTest(model, apiKey, timeoutMs = 20000) {
+  async function requestModelTest(model, apiKey, timeoutMs = 20000, thinkingLevel = 'low') {
     async function sendTest(maxOutputTokens) {
       const abort = new AbortController();
       const timeout = setTimeout(() => abort.abort(), timeoutMs);
       try {
+        const generationConfig = { maxOutputTokens };
+        if (/^gemini-(?:3(?:\.\d+)?|4)(?:-|$)/i.test(model)) {
+          const level = ['low', 'medium', 'high'].includes(String(thinkingLevel).toLowerCase())
+            ? String(thinkingLevel).toLowerCase()
+            : 'low';
+          generationConfig.thinkingConfig = { thinkingLevel: level };
+        }
+
         const response = await fetch(
           'https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent',
           {
@@ -89,7 +98,7 @@
             headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
             body: JSON.stringify({
               contents: [{ role: 'user', parts: [{ text: 'Reply with the single word OK. Do not explain.' }] }],
-              generationConfig: { temperature: 0, maxOutputTokens }
+              generationConfig
             }),
             signal: abort.signal,
             cache: 'no-store'
@@ -165,7 +174,7 @@
     setStatus(modelStatus, 'Đang gọi thử model ' + model + ' bằng một yêu cầu ngắn…');
 
     try {
-      const result = await requestModelTest(model, apiKey, 25000);
+      const result = await requestModelTest(model, apiKey, 25000, $('geminiThinkingLevel').value);
       if (!result.ok) throw new Error('Model "' + model + '" — ' + result.message);
 
       const message = 'Model "' + model + '" chạy được với API key này. Phản hồi thử: ' + result.reply;
@@ -454,6 +463,9 @@
 
   chrome.storage.local.get(SETTINGS_DEFAULTS, values => {
     $('geminiApiKey').value = values.geminiApiKey || '';
+    $('geminiThinkingLevel').value = ['low', 'medium', 'high'].includes(values.geminiThinkingLevel)
+      ? values.geminiThinkingLevel
+      : 'low';
     $('telegramBotToken').value = values.telegramBotToken || '';
     $('telegramChatId').value = values.telegramChatId || '';
 
@@ -476,6 +488,9 @@
     const values = {
       geminiApiKey: $('geminiApiKey').value.trim(),
       geminiModel: modelSelect.value || DEFAULT_MODEL,
+      geminiThinkingLevel: ['low', 'medium', 'high'].includes($('geminiThinkingLevel').value)
+        ? $('geminiThinkingLevel').value
+        : 'low',
       telegramBotToken: $('telegramBotToken').value.trim(),
       telegramChatId: $('telegramChatId').value.trim()
     };
