@@ -23,11 +23,8 @@
       chrome.storage.local.get({
         geminiApiKey: '',
         geminiModel: DEFAULT_MODEL,
-        deliveryTarget: 'telegram',
         telegramBotToken: '',
-        telegramChatId: '',
-        zaloAccessToken: '',
-        zaloUserId: ''
+        telegramChatId: ''
       }, resolve);
     });
   }
@@ -141,55 +138,6 @@
     return 'Telegram';
   }
 
-  async function sendZalo(settings, text) {
-    const token = String(settings.zaloAccessToken || '').trim();
-    const userId = String(settings.zaloUserId || '').trim();
-    if (!token || !userId) {
-      throw new Error('Zalo OA cần Access Token và User ID của người nhận trong Options.');
-    }
-
-    // Keep each text message below commonly encountered OA text limits.
-    const chunks = splitMessage(text, 1800);
-    for (const chunk of chunks) {
-      const response = await fetch('https://openapi.zalo.me/v2.0/oa/message', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'access_token': token
-        },
-        body: JSON.stringify({
-          recipient: { user_id: userId },
-          message: { text: chunk }
-        })
-      });
-      const data = await readJsonResponse(response, 'Zalo OA API');
-      if (typeof data?.error !== 'undefined' && Number(data.error) !== 0) {
-        throw new Error('Zalo OA API: ' + (data?.message || data?.error_name || data.error));
-      }
-    }
-    return 'Zalo OA';
-  }
-
-  async function deliverAnswer(settings, text) {
-    const target = settings.deliveryTarget || 'telegram';
-    if (target === 'telegram') return [await sendTelegram(settings, text)];
-    if (target === 'zalo') return [await sendZalo(settings, text)];
-    if (target === 'both') {
-      const results = await Promise.allSettled([
-        sendTelegram(settings, text),
-        sendZalo(settings, text)
-      ]);
-      const sent = results.filter(result => result.status === 'fulfilled').map(result => result.value);
-      const failed = results.filter(result => result.status === 'rejected').map(result => String(result.reason?.message || result.reason));
-      if (failed.length && !sent.length) throw new Error(failed.join(' | '));
-      if (failed.length) {
-        throw new Error('Đã gửi tới ' + sent.join(', ') + ' nhưng kênh còn lại lỗi: ' + failed.join(' | '));
-      }
-      return sent;
-    }
-    throw new Error('Kênh gửi không hợp lệ. Hãy chọn Telegram, Zalo OA hoặc cả hai trong Options.');
-  }
-
   async function handleGeminiDelivery(question) {
     const text = String(question || '').trim();
     if (!text) throw new Error('Không có văn bản được bôi đen.');
@@ -204,10 +152,10 @@
     await setGeminiState('AI', 'Đang gửi câu hỏi sang Gemini…', '#4f46e5', 0);
     const settings = await getSettings();
     const answer = await askGemini(text, settings);
-    await setGeminiState('→', 'Gemini đã trả lời. Đang gửi qua ' + (settings.deliveryTarget || 'telegram') + '…', '#0f766e', 0);
-    const targets = await deliverAnswer(settings, makeMessage(text, answer));
-    await setGeminiState('✓', 'Đã gửi câu trả lời Gemini qua ' + targets.join(' + '), '#15803d', 3000);
-    return { ok: true, targets: targets };
+    await setGeminiState('→', 'Gemini đã trả lời. Đang gửi qua Telegram…', '#0f766e', 0);
+    await sendTelegram(settings, makeMessage(text, answer));
+    await setGeminiState('✓', 'Đã gửi câu hỏi và câu trả lời qua Telegram', '#15803d', 3000);
+    return { ok: true, targets: ['Telegram'] };
   }
 
   chrome.runtime.onMessage.addListener((message, sender, reply) => {
@@ -217,7 +165,7 @@
       .then(reply)
       .catch(async error => {
         const detail = String(error?.message || error);
-        console.error('[Gemini → Telegram/Zalo]', detail);
+        console.error('[Gemini → Telegram]', detail);
         await setGeminiState('!', detail, '#b91c1c', 6000);
         reply({ ok: false, error: detail });
       });
