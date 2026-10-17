@@ -21,7 +21,7 @@ async function setActionState(text, title, clearAfter = 0) {
   if (clearAfter > 0) {
     setTimeout(() => {
       chrome.action.setBadgeText({ text: '' }).catch(() => {});
-      chrome.action.setTitle({ title: 'Trợ lý AI: ChatGPT, Gemini → Telegram, Android OCR' }).catch(() => {});
+      chrome.action.setTitle({ title: 'Mở lựa chọn AI và cài đặt' }).catch(() => {});
     }, clearAfter);
   }
 }
@@ -248,7 +248,7 @@ async function readPhoneAndSend() {
     return { ok: true, items: data.items || 0, ocrUsed: !!data.ocrUsed };
   } catch (error) {
     const message = error?.name === 'AbortError'
-      ? 'Bridge/ADB/OCR phản hồi quá lâu.'
+      ? 'Bridge/ADB/OCR phản hồi quá lâu. Kiểm tra start-bridge.bat tại 127.0.0.1:8765.'
       : String(error?.message || error);
     console.error('[Android → ChatGPT]', message);
     await setActionState('!', 'Lỗi: ' + message, 3500);
@@ -258,10 +258,6 @@ async function readPhoneAndSend() {
     phoneBusy = false;
   }
 }
-
-chrome.action.onClicked.addListener(() => {
-  readPhoneAndSend().catch(error => console.error('[Android → ChatGPT]', error));
-});
 
 chrome.runtime.onMessage.addListener((message, sender, reply) => {
   if (message?.type === 'ASK_CHATGPT_WEB') {
