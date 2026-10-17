@@ -75,3 +75,9 @@ Khi bôi đen văn bản rồi chuột phải, extension hiện một thông bá
 
 
 Sau khi pull mã mới và bấm Reload tại `chrome://extensions/`, hãy tải lại tab đang sử dụng (Ctrl+R hoặc F5) để content script mới được nạp vào trang. Nếu không tải lại trang cũ, trang có thể vẫn chạy bản content script cũ.
+
+
+### Cải thiện kiểm tra hàng loạt (v2.6.8)
+- Chỉ thử các model hướng tới trả lời văn bản; tự bỏ qua nhóm chuyên tạo ảnh, âm thanh/TTS, transcribe, embedding, robotics và video.
+- Bài thử sử dụng 256 token thay vì 8; nếu kết thúc bằng `MAX_TOKENS`, tự thử lại với 1024 token để tránh báo lỗi giả.
+- Model phản hồi `429 RESOURCE_EXHAUSTED` hoặc lỗi mạng/dịch vụ tạm thời được đưa vào nhóm **Quota / lỗi tạm thời — chưa kết luận**, không gộp với lỗi ID/quyền truy cập/model không hỗ trợ.
