@@ -2,10 +2,6 @@ importScripts('gemini-delivery.js');
 
 const CHATGPT_URL = 'https://chatgpt.com/';
 const BRIDGE_URL = 'http://127.0.0.1:8765/screen-text';
-const MENU_ROOT = 'rcgpt-assistant-root';
-const MENU_CHATGPT = 'rcgpt-send-chatgpt';
-const MENU_GEMINI_TELEGRAM = 'rcgpt-gemini-telegram';
-const MENU_ANDROID_OCR = 'rcgpt-android-ocr';
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 let lastPrompt = '';
@@ -26,94 +22,17 @@ async function setActionState(text, title, clearAfter = 0) {
   }
 }
 
-function createContextMenus() {
+function clearLegacyContextMenus() {
+  // Remove the old per-action submenu; mode selection is now persistent in the popup.
   chrome.contextMenus.removeAll(() => {
     if (chrome.runtime.lastError) {
-      console.warn('[Context menu]', chrome.runtime.lastError.message);
-      return;
+      console.warn('[Context menu cleanup]', chrome.runtime.lastError.message);
     }
-
-    chrome.contextMenus.create({
-      id: MENU_ROOT,
-      title: 'Trợ lý AI',
-      contexts: ['page', 'selection']
-    });
-
-    chrome.contextMenus.create({
-      id: MENU_CHATGPT,
-      parentId: MENU_ROOT,
-      title: '1. Gửi văn bản sang ChatGPT Web',
-      contexts: ['selection']
-    });
-
-    chrome.contextMenus.create({
-      id: MENU_GEMINI_TELEGRAM,
-      parentId: MENU_ROOT,
-      title: '2. Gemini trả lời → Telegram',
-      contexts: ['selection']
-    });
-
-    chrome.contextMenus.create({
-      id: MENU_ANDROID_OCR,
-      parentId: MENU_ROOT,
-      title: '3. Đọc màn hình Android → ChatGPT',
-      contexts: ['page', 'selection']
-    });
   });
 }
 
-chrome.runtime.onInstalled.addListener(createContextMenus);
-chrome.runtime.onStartup.addListener(createContextMenus);
-
-async function getSelectedContextText(info, tab) {
-  const directText = String(info?.selectionText || '').trim();
-  if (directText) return directText;
-  if (!tab?.id) return '';
-
-  try {
-    const options = Number.isInteger(info?.frameId) ? { frameId: info.frameId } : undefined;
-    const reply = options
-      ? await chrome.tabs.sendMessage(tab.id, { type: 'GET_SELECTED_TEXT' }, options)
-      : await chrome.tabs.sendMessage(tab.id, { type: 'GET_SELECTED_TEXT' });
-    return String(reply?.text || '').trim();
-  } catch (_) {
-    return '';
-  }
-}
-
-async function showMenuError(message) {
-  console.error('[Right Click AI]', message);
-  await setActionState('!', message, 6000);
-}
-
-chrome.contextMenus.onClicked.addListener(async (info, tab) => {
-  if (info.menuItemId === MENU_ANDROID_OCR) {
-    readPhoneAndSend().catch(error => showMenuError(String(error?.message || error)));
-    return;
-  }
-
-  if (info.menuItemId !== MENU_CHATGPT && info.menuItemId !== MENU_GEMINI_TELEGRAM) {
-    return;
-  }
-
-  const text = await getSelectedContextText(info, tab);
-  if (!text) {
-    await showMenuError('Không lấy được văn bản đã chọn. Hãy bôi đen câu hỏi rồi mở lại menu.');
-    return;
-  }
-
-  if (info.menuItemId === MENU_CHATGPT) {
-    const result = await sendToChatGPT(text);
-    if (!result?.ok) await showMenuError(result?.error || 'Không gửi được sang ChatGPT Web.');
-    return;
-  }
-
-  if (info.menuItemId === MENU_GEMINI_TELEGRAM) {
-    globalThis.RCGPTGemini.handleGeminiDelivery(text).catch(async error => {
-      await showMenuError(String(error?.message || error));
-    });
-  }
-});
+chrome.runtime.onInstalled.addListener(clearLegacyContextMenus);
+chrome.runtime.onStartup.addListener(clearLegacyContextMenus);
 
 async function findChatGPTTab() {
   const tabs = await chrome.tabs.query({
@@ -259,7 +178,52 @@ async function readPhoneAndSend() {
   }
 }
 
+async function runSelectedMode(mode, text) {
+  const selectedText = String(text || '').trim();
+  const validModes = ['chatgpt', 'gemini', 'android'];
+  const selectedMode = validModes.includes(mode) ? mode : 'chatgpt';
+
+  if (!selectedText) {
+    throw new Error('Không lấy được văn bản đang bôi đen. Hãy bôi đen câu hỏi rồi chuột phải.');
+  }
+
+  if (selectedMode === 'chatgpt') {
+    await setActionState('…', 'Đang gửi văn bản sang ChatGPT Web…');
+    const result = await sendToChatGPT(selectedText);
+    if (!result?.ok) throw new Error(result?.error || 'Không gửi được sang ChatGPT Web.');
+    await setActionState('✓', 'Đã gửi văn bản sang ChatGPT Web', 2200);
+    return { ok: true, mode: selectedMode };
+  }
+
+  if (selectedMode === 'gemini') {
+    if (!globalThis.RCGPTGemini?.handleGeminiDelivery) {
+      throw new Error('Không tải được chức năng Gemini. Hãy tải lại extension.');
+    }
+    const result = await globalThis.RCGPTGemini.handleGeminiDelivery(selectedText);
+    if (!result?.ok) throw new Error(result?.error || 'Gemini/Telegram xử lý thất bại.');
+    return { ...result, mode: selectedMode };
+  }
+
+  // In Android mode, the selected text is the deliberate right-click trigger.
+  // The actual question is read from the connected Android screen through ADB/OCR.
+  const result = await readPhoneAndSend();
+  if (!result?.ok) throw new Error(result?.error || 'Không đọc/gửi được màn hình Android.');
+  return { ...result, mode: selectedMode };
+}
+
 chrome.runtime.onMessage.addListener((message, sender, reply) => {
+  if (message?.type === 'RUN_SELECTED_MODE') {
+    runSelectedMode(message.mode, message.text)
+      .then(reply)
+      .catch(async error => {
+        const detail = String(error?.message || error);
+        console.error('[Right Click AI]', detail);
+        await setActionState('!', detail, 6000);
+        reply({ ok: false, error: detail });
+      });
+    return true;
+  }
+
   if (message?.type === 'ASK_CHATGPT_WEB') {
     sendToChatGPT(message.text)
       .then(reply)
