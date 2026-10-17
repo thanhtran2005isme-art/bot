@@ -85,7 +85,8 @@
     const isGemini3OrLater = /^gemini-(?:3(?:\.\d+)?|4)(?:-|$)/i.test(model);
     const configuredLevel = String(settings.geminiThinkingLevel || 'low').toLowerCase();
     const thinkingLevel = ['low', 'medium', 'high'].includes(configuredLevel) ? configuredLevel : 'low';
-    const generationConfig = { maxOutputTokens: 512 };
+    const maxOutputTokens = thinkingLevel === 'high' ? 2048 : thinkingLevel === 'medium' ? 1024 : 512;
+    const generationConfig = { maxOutputTokens };
     if (isGemini3OrLater) {
       // Make latency/accuracy trade-offs user-selectable for Gemini 3/4.
       generationConfig.thinkingConfig = { thinkingLevel };
