@@ -17,7 +17,7 @@ async function setActionState(text, title, clearAfter = 0) {
   if (clearAfter > 0) {
     setTimeout(() => {
       chrome.action.setBadgeText({ text: '' }).catch(() => {});
-      chrome.action.setTitle({ title: 'Mở lựa chọn AI và cài đặt' }).catch(() => {});
+      chrome.action.setTitle({ title: 'Mở popup để đổi chế độ AI / cài đặt' }).catch(() => {});
     }, clearAfter);
   }
 }
