@@ -2,21 +2,15 @@
   const ids = [
     'geminiApiKey',
     'geminiModel',
-    'deliveryTarget',
     'telegramBotToken',
-    'telegramChatId',
-    'zaloAccessToken',
-    'zaloUserId'
+    'telegramChatId'
   ];
 
   const defaults = {
     geminiApiKey: '',
     geminiModel: 'gemini-3.8-flash',
-    deliveryTarget: 'telegram',
     telegramBotToken: '',
-    telegramChatId: '',
-    zaloAccessToken: '',
-    zaloUserId: ''
+    telegramChatId: ''
   };
 
   function setStatus(message, isError) {
@@ -39,10 +33,6 @@
     }
 
     if (!values.geminiModel) values.geminiModel = defaults.geminiModel;
-    if (!['telegram', 'zalo', 'both'].includes(values.deliveryTarget)) {
-      setStatus('Kênh gửi không hợp lệ.', true);
-      return;
-    }
 
     chrome.storage.local.set(values, () => {
       if (chrome.runtime.lastError) {
