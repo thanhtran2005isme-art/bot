@@ -2,7 +2,10 @@
   if (globalThis.__RCGPT_FLOATING_PHONE_BUTTON__) return;
   globalThis.__RCGPT_FLOATING_PHONE_BUTTON__ = true;
 
+  let activeMode = 'chatgpt';
+
   function mount() {
+    if (activeMode !== 'android') return;
     if (!document.documentElement || document.getElementById('__rcgpt_phone_host__')) return;
 
     const host = document.createElement('div');
@@ -86,6 +89,22 @@
     document.documentElement.appendChild(host);
   }
 
-  if (document.documentElement) mount();
-  else document.addEventListener('readystatechange', mount, { once: true });
+  function syncMode(mode) {
+    activeMode = mode === 'android' ? 'android' : 'chatgpt';
+    if (activeMode !== 'android') {
+      document.getElementById('__rcgpt_phone_host__')?.remove();
+      return;
+    }
+    if (document.documentElement) mount();
+    else document.addEventListener('readystatechange', mount, { once: true });
+  }
+
+  chrome.storage.local.get({ activeMode: 'chatgpt' }, values => {
+    syncMode(values.activeMode);
+  });
+  chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName === 'local' && changes.activeMode) {
+      syncMode(changes.activeMode.newValue);
+    }
+  });
 })();

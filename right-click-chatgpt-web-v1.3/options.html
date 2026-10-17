@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cấu hình Gemini → Telegram</title>
+  <style>
+    :root { color-scheme: light dark; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+    body { max-width: 760px; margin: 32px auto; padding: 0 20px 40px; line-height: 1.5; }
+    h1 { font-size: 25px; margin-bottom: 8px; }
+    .intro, .note { color: GrayText; }
+    fieldset { border: 1px solid #8886; border-radius: 12px; margin: 18px 0; padding: 16px; }
+    legend { font-weight: 700; padding: 0 6px; }
+    label { display: block; font-weight: 600; margin: 12px 0 5px; }
+    input, select { box-sizing: border-box; width: 100%; padding: 10px 11px; border: 1px solid #8888; border-radius: 8px; font: inherit; }
+    button { border: 0; padding: 10px 16px; border-radius: 8px; font: inherit; font-weight: 700; cursor: pointer; }
+    button:disabled { opacity: .6; cursor: wait; }
+    .save { background: #2563eb; color: white; }
+    .secondary { border: 1px solid #8888; background: transparent; }
+    .model-actions { display: flex; gap: 10px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
+    .status { display: block; margin-top: 8px; }
+    .save-status { margin-left: 12px; }
+    .model-list { display: grid; gap: 7px; max-height: 320px; overflow: auto; margin-top: 8px; }
+    .model-row { width: 100%; box-sizing: border-box; text-align: left; border: 1px solid #8886; border-radius: 8px; padding: 10px 12px; background: transparent; font-weight: 400; }
+    button.model-row { cursor: pointer; }
+    .model-row strong { display: block; overflow-wrap: anywhere; }
+    .model-row small { display: block; color: GrayText; margin-top: 3px; line-height: 1.4; overflow-wrap: anywhere; }
+    .model-row.success { border-color: #16a34a88; }
+    .model-row.failure { border-color: #dc262688; }
+    .model-row.deferred { border-color: #d9770688; }
+    .list-heading { margin: 18px 0 4px; font-size: 16px; }
+    .empty-list { color: GrayText; font-size: 13px; padding: 8px 0; }
+    code { overflow-wrap: anywhere; }
+  </style>
+</head>
+<body>
+  <h1>Gemini → Telegram</h1>
+  <p class="intro">Chọn chế độ Gemini → Telegram trong popup; bôi đen văn bản rồi chuột phải để chạy. Nếu model lỗi, trang này sẽ lưu lại model và chi tiết lỗi để xem sau.</p>
+
+  <fieldset>
+    <legend>Gemini API</legend>
+    <label for="geminiApiKey">Gemini API key</label>
+    <input id="geminiApiKey" type="password" autocomplete="off" placeholder="Dán API key từ Google AI Studio">
+    <label for="geminiModel">Model Gemini sử dụng</label>
+    <select id="geminiModel" aria-describedby="modelHelp">
+      <option value="gemini-3.8-flash">Gemini 3.8 Flash (mặc định)</option>
+      <option value="gemini-3.7-flash">Gemini 3.7 Flash</option>
+      <option value="gemini-3.6-flash">Gemini 3.6 Flash</option>
+      <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro Preview</option>
+      <option value="gemini-3-flash-preview">Gemini 3 Flash Preview</option>
+    </select>
+    <label for="geminiThinkingLevel">Mức suy luận (Gemini 3/4)</label>
+    <select id="geminiThinkingLevel" aria-describedby="thinkingHelp">
+      <option value="low">Nhanh (low) — ưu tiên phản hồi nhanh</option>
+      <option value="medium">Cân bằng (medium)</option>
+      <option value="high">Sâu (high) — ưu tiên câu hỏi khó</option>
+    </select>
+    <p id="thinkingHelp" class="note">Mặc định là Nhanh. Chọn Cân bằng hoặc Sâu khi gặp câu hỏi cần suy luận nhiều. Với model đời cũ không hỗ trợ thinking level, tùy chọn này sẽ được bỏ qua.</p>
+    <div class="model-actions">
+      <button id="loadModels" class="secondary" type="button">Tải danh sách model từ API</button>
+      <button id="testModel" class="secondary" type="button">Kiểm tra model đang chọn</button>
+      <button id="testAllModels" class="secondary" type="button">Kiểm tra tất cả model</button>
+    </div>
+    <p id="modelHelp" class="note">Tải danh sách model rồi bấm “Kiểm tra tất cả model”. Extension tự kiểm tra nhiều model cùng lúc; model chạy được sẽ xuất hiện ở danh sách bên dưới. Bấm vào model xanh để chọn, sau đó bấm Lưu cấu hình.</p>
+    <span id="modelStatus" class="status" role="status" aria-live="polite"></span>
+    <h3 class="list-heading">Model chạy được (<span id="workingModelCount">0</span>)</h3>
+    <div id="workingModelsList" class="model-list" aria-live="polite"><div class="empty-list">Chưa kiểm tra model.</div></div>
+    <h3 class="list-heading">Model lỗi xác định (<span id="failedModelCount">0</span>)</h3>
+    <div id="failedModelsList" class="model-list" aria-live="polite"><div class="empty-list">Chưa kiểm tra model.</div></div>
+    <h3 class="list-heading">Quota / lỗi tạm thời — chưa kết luận (<span id="deferredModelCount">0</span>)</h3>
+    <div id="deferredModelsList" class="model-list" aria-live="polite"><div class="empty-list">Chưa kiểm tra model.</div></div>
+    <p><strong>Lần Gemini gần nhất:</strong> <span id="lastRunStatus" class="status" role="status" aria-live="polite">Chưa có dữ liệu.</span></p>
+  </fieldset>
+
+  <fieldset>
+    <legend>Telegram Bot</legend>
+    <p class="note">Tạo bot bằng BotFather. Mở cuộc trò chuyện với bot và gửi /start trước khi thử gửi tin nhắn.</p>
+    <label for="telegramBotToken">Bot Token</label>
+    <input id="telegramBotToken" type="password" autocomplete="off" placeholder="123456:ABC...">
+    <label for="telegramChatId">Chat ID</label>
+    <input id="telegramChatId" type="text" autocomplete="off" placeholder="Ví dụ: 123456789 hoặc ID nhóm">
+  </fieldset>
+
+  <p class="note">Thông tin cấu hình được lưu trong chrome.storage.local trên hồ sơ Chrome này. Không dán API key/token vào GitHub hoặc chia sẻ thông tin cấu hình.</p>
+  <button id="save" class="save" type="button">Lưu cấu hình</button>
+  <span id="status" class="save-status" role="status" aria-live="polite"></span>
+
+  <script src="options.js"></script>
+</body>
+</html>

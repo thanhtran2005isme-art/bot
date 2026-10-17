@@ -497,18 +497,54 @@ def read_android_screen_text():
 class Handler(BaseHTTPRequestHandler):
     server_version = "AndroidTextBridge/1.4"
 
+    def is_extension_origin(self):
+        origin = self.headers.get("Origin", "").strip()
+        parsed = urlparse(origin)
+        return (
+            parsed.scheme == "chrome-extension"
+            and bool(parsed.netloc)
+            and not parsed.path
+            and not parsed.params
+            and not parsed.query
+            and not parsed.fragment
+        )
+
     def send_json(self, status, payload):
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Cache-Control", "no-store")
-        self.send_header("Access-Control-Allow-Origin", "*")
+        origin = self.headers.get("Origin", "").strip()
+        parsed = urlparse(origin)
+        if (
+            parsed.scheme == "chrome-extension"
+            and parsed.netloc
+            and not parsed.path
+            and not parsed.params
+            and not parsed.query
+            and not parsed.fragment
+        ):
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Vary", "Origin")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
 
     def do_GET(self):
         path = urlparse(self.path).path
+        if path not in ("/health", "/screen-text"):
+            self.send_json(404, {"ok": False, "error": "Not found"})
+            return
+
+        # Do not let ordinary websites trigger phone screenshots/OCR or read
+        # the extracted screen text. Only a Chrome extension origin is accepted.
+        if not self.is_extension_origin():
+            self.send_json(403, {
+                "ok": False,
+                "error": "Local bridge chỉ chấp nhận yêu cầu từ Chrome extension."
+            })
+            return
+
         if path == "/health":
             self.send_json(200, {
                 "ok": True,
@@ -517,10 +553,6 @@ class Handler(BaseHTTPRequestHandler):
                 "tesseractFound": bool(find_tesseract()),
                 "fastOcr": FAST_OCR,
             })
-            return
-
-        if path != "/screen-text":
-            self.send_json(404, {"ok": False, "error": "Not found"})
             return
 
         try:

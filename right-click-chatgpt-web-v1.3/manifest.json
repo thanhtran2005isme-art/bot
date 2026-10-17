@@ -1,39 +1,64 @@
 {
   "manifest_version": 3,
   "name": "Right Click → ChatGPT Web",
-  "version": "2.4.4",
-  "description": "Bôi đen rồi chuột phải để tự gửi sang ChatGPT Web; đọc màn hình Android qua ADB và tự fallback OCR khi UIAutomator thiếu text.",
-  "permissions": ["tabs", "scripting"],
+  "version": "2.6.9",
+  "description": "Chọn chế độ AI mặc định; kiểm tra hàng loạt model Gemini trả lời văn bản, phân biệt lỗi quota và model không khả dụng.",
+  "permissions": [
+    "tabs",
+    "scripting",
+    "storage",
+    "contextMenus"
+  ],
   "host_permissions": [
     "<all_urls>",
-    "http://127.0.0.1:8765/*"
+    "http://127.0.0.1:8765/*",
+    "https://generativelanguage.googleapis.com/*",
+    "https://api.telegram.org/*"
   ],
+  "options_page": "options.html",
   "background": {
     "service_worker": "background-direct-v2.js"
   },
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
-      "js": ["floating-button.js"],
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "floating-button.js"
+      ],
       "run_at": "document_start",
       "all_frames": false
     },
     {
-      "matches": ["<all_urls>"],
-      "exclude_matches": ["https://chatgpt.com/*", "https://chat.openai.com/*"],
-      "js": ["selection.js"],
+      "matches": [
+        "<all_urls>"
+      ],
+      "exclude_matches": [
+        "https://chatgpt.com/*",
+        "https://chat.openai.com/*"
+      ],
+      "js": [
+        "selection.js"
+      ],
       "run_at": "document_start",
       "all_frames": true,
       "match_about_blank": true,
       "match_origin_as_fallback": true
     },
     {
-      "matches": ["https://chatgpt.com/*", "https://chat.openai.com/*"],
-      "js": ["chatgpt-direct.js"],
+      "matches": [
+        "https://chatgpt.com/*",
+        "https://chat.openai.com/*"
+      ],
+      "js": [
+        "chatgpt-direct.js"
+      ],
       "run_at": "document_start"
     }
   ],
   "action": {
-    "default_title": "Đọc màn hình điện thoại → ChatGPT"
+    "default_title": "Mở popup để đổi chế độ AI / cài đặt",
+    "default_popup": "popup.html"
   }
 }

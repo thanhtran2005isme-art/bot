@@ -1,14 +1,13 @@
 (() => {
-  if (globalThis.__RCGPT_AUTO_RIGHT_CLICK__) return;
-  globalThis.__RCGPT_AUTO_RIGHT_CLICK__ = true;
+  if (globalThis.__RCGPT_SELECTION_CACHE__) return;
+  globalThis.__RCGPT_SELECTION_CACHE__ = true;
 
   const CACHE_TTL_MS = 15000;
-  const DUPLICATE_WINDOW_MS = 1500;
-
   let cachedText = '';
   let cachedAt = 0;
-  let lastSentText = '';
-  let lastSentAt = 0;
+  let toastHost = null;
+  let toastRoot = null;
+  let toastTimer = 0;
 
   function readSelectionNow() {
     try {
@@ -22,85 +21,199 @@
       const end = el.selectionEnd ?? 0;
       return String(el.value || '').slice(start, end).trim();
     }
-
     return '';
   }
 
   function rememberSelection() {
     const text = readSelectionNow();
-
-    // Do not erase the cache when another extension temporarily clears the
-    // selection while it is enabling copy/right-click.
     if (!text) return;
-
     cachedText = text;
     cachedAt = Date.now();
   }
 
-  function textForSend() {
+  function selectedText() {
     const liveText = readSelectionNow();
-
     if (liveText) {
       cachedText = liveText;
       cachedAt = Date.now();
       return liveText;
     }
-
-    if (cachedText && Date.now() - cachedAt <= CACHE_TTL_MS) {
-      return cachedText;
-    }
-
+    if (cachedText && Date.now() - cachedAt <= CACHE_TTL_MS) return cachedText;
     return '';
-  }
-
-  function sendSelection(source = 'right-click-auto') {
-    const text = textForSend();
-    if (!text) return;
-
-    const now = Date.now();
-    if (text === lastSentText && now - lastSentAt < DUPLICATE_WINDOW_MS) return;
-
-    lastSentText = text;
-    lastSentAt = now;
-
-    chrome.runtime.sendMessage({
-      type: 'ASK_CHATGPT_WEB',
-      text,
-      source
-    }).catch(() => {});
   }
 
   function rememberSoon() {
     setTimeout(rememberSelection, 0);
   }
 
-  function onRightButton(event) {
-    if (event.button !== 2) return;
+  function ensureToast() {
+    if (toastHost?.isConnected && toastRoot) return;
 
-    // Preserve the selection before Allow Right Click (or the page itself)
-    // has a chance to replace/clear it, then send from the live-or-cached value.
-    rememberSelection();
-    setTimeout(() => sendSelection(`right-click-${event.type}`), 0);
+    toastHost = document.createElement('div');
+    toastHost.id = '__rcgpt_status_toast_host__';
+    toastHost.style.cssText = [
+      'all: initial',
+      'position: fixed',
+      'right: 16px',
+      'bottom: 16px',
+      'z-index: 2147483647',
+      'width: min(440px, calc(100vw - 32px))',
+      'pointer-events: none'
+    ].join(';');
+
+    toastRoot = toastHost.attachShadow({ mode: 'open' });
+    const style = document.createElement('style');
+    style.textContent = `
+      .toast {
+        box-sizing: border-box;
+        width: fit-content;
+        max-width: 100%;
+        padding: 11px 15px;
+        border-radius: 10px;
+        color: #fff;
+        background: #1d4ed8;
+        box-shadow: 0 5px 24px rgba(0,0,0,.28);
+        font: 13px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+      .toast.error { background: #b91c1c; }
+      .toast.success { background: #15803d; }
+      .toast.info { background: #1d4ed8; }
+    `;
+    toastRoot.appendChild(style);
+    const container = document.createElement('div');
+    container.id = 'message';
+    toastRoot.appendChild(container);
+    (document.documentElement || document.body).appendChild(toastHost);
   }
 
-  function onContextMenu() {
-    rememberSelection();
-    sendSelection('right-click-contextmenu');
+  function showToast(message, kind = 'info', duration = 7000) {
+    try {
+      ensureToast();
+      clearTimeout(toastTimer);
+      const container = toastRoot.getElementById('message');
+      const card = document.createElement('div');
+      card.className = 'toast ' + kind;
+      card.textContent = String(message || '');
+      container.replaceChildren(card);
+      if (duration > 0) {
+        toastTimer = setTimeout(() => {
+          if (toastHost?.isConnected) toastHost.remove();
+          toastHost = null;
+          toastRoot = null;
+        }, duration);
+      }
+    } catch (error) {
+      console.warn('[Right Click AI toast]', error);
+      console.info('[Right Click AI]', message);
+    }
   }
 
-  // Cache text as soon as the user creates a selection. This decouples
-  // sending from whatever another extension does during the right-click.
   document.addEventListener('selectionchange', rememberSoon, true);
   document.addEventListener('copy', rememberSelection, true);
   document.addEventListener('keyup', rememberSoon, true);
+  document.addEventListener('mouseup', rememberSoon, true);
 
-  // Multiple independent right-button signals make the extension resilient
-  // when another extension suppresses one particular mouse event.
-  for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'auxclick']) {
-    window.addEventListener(type, onRightButton, true);
-    document.addEventListener(type, onRightButton, true);
+  let activeMode = 'chatgpt';
+  const validModes = ['chatgpt', 'gemini', 'android'];
+  const modeLabels = {
+    chatgpt: 'ChatGPT Web',
+    gemini: 'Gemini → Telegram',
+    android: 'Đọc màn hình Android'
+  };
+  const normalizeMode = mode => validModes.includes(mode) ? mode : 'chatgpt';
+
+  try {
+    chrome.storage.local.get({ activeMode: 'chatgpt' }, values => {
+      activeMode = normalizeMode(values.activeMode);
+    });
+
+    chrome.storage.onChanged.addListener((changes, areaName) => {
+      if (areaName === 'local' && changes.activeMode) {
+        activeMode = normalizeMode(changes.activeMode.newValue);
+      }
+    });
+  } catch (error) {
+    console.warn('[Right Click AI storage]', error);
   }
 
-  window.addEventListener('contextmenu', onContextMenu, true);
-  document.addEventListener('contextmenu', onContextMenu, true);
+  function runSavedModeOnRightClick(event) {
+    const text = readSelectionNow();
+    if (!text) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation();
+    cachedText = text;
+    cachedAt = Date.now();
+
+    // Fetch the current mode again to avoid a race after changing modes.
+    try {
+      chrome.storage.local.get({ activeMode: 'chatgpt' }, values => {
+        const mode = normalizeMode(values.activeMode || activeMode);
+        activeMode = mode;
+        showToast('Đang chạy ' + modeLabels[mode] + '…', 'info', 0);
+
+        let watchdog = setTimeout(() => {
+          showToast(
+            'Extension chưa phản hồi sau 60 giây. Mở chrome://extensions và kiểm tra lỗi tại mục Service worker.',
+            'error',
+            12000
+          );
+        }, 60000);
+
+        try {
+          chrome.runtime.sendMessage({
+            type: 'RUN_SELECTED_MODE',
+            mode,
+            text
+          }, response => {
+            clearTimeout(watchdog);
+
+            if (chrome.runtime.lastError) {
+              const detail = chrome.runtime.lastError.message || 'Không liên lạc được với extension background.';
+              showToast('LỖI EXTENSION: ' + detail + ' — hãy Reload extension rồi tải lại trang web.', 'error', 12000);
+              console.error('[Right Click AI]', detail);
+              return;
+            }
+
+            if (!response) {
+              showToast('Không nhận được phản hồi từ extension. Kiểm tra Service worker tại chrome://extensions.', 'error', 12000);
+              return;
+            }
+
+            if (!response.ok) {
+              const detail = response.error || 'Thao tác thất bại không rõ nguyên nhân.';
+              showToast('LỖI ' + modeLabels[mode] + ': ' + detail, 'error', 12000);
+              console.error('[Right Click AI]', detail);
+              return;
+            }
+
+            if (mode === 'gemini') {
+              const elapsed = Number(response.durationMs);
+              const timing = Number.isFinite(elapsed) && elapsed > 0 ? ' · ' + (elapsed / 1000).toFixed(1) + ' giây' : '';
+              showToast('ĐÃ GỬI ĐÁP ÁN QUA TELEGRAM' + timing + (response.model ? ' · Model: ' + response.model : ''), 'success', 7000);
+            } else if (mode === 'chatgpt') {
+              showToast('Đã gửi văn bản sang ChatGPT Web.', 'success', 5000);
+            } else {
+              showToast('Đã gửi nội dung màn hình Android sang ChatGPT.', 'success', 5000);
+            }
+          });
+        } catch (error) {
+          clearTimeout(watchdog);
+          showToast('LỖI EXTENSION: ' + String(error?.message || error) + ' — hãy Reload extension và tải lại trang web.', 'error', 12000);
+        }
+      });
+    } catch (error) {
+      showToast('Không đọc được chế độ đang chọn: ' + String(error?.message || error), 'error', 12000);
+    }
+  }
+
+  document.addEventListener('contextmenu', runSavedModeOnRightClick, true);
+
+  chrome.runtime.onMessage.addListener((message, sender, reply) => {
+    if (message?.type !== 'GET_SELECTED_TEXT') return;
+    reply({ text: selectedText() });
+  });
 })();
