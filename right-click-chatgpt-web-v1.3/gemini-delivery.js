@@ -13,7 +13,7 @@
     if (clearAfter > 0) {
       setTimeout(() => {
         chrome.action.setBadgeText({ text: '' }).catch(() => {});
-        chrome.action.setTitle({ title: 'Đọc màn hình điện thoại → ChatGPT' }).catch(() => {});
+        chrome.action.setTitle({ title: 'Trợ lý AI: ChatGPT, Gemini → Telegram, Android OCR' }).catch(() => {});
       }, clearAfter);
     }
   }
@@ -157,6 +157,8 @@
     await setGeminiState('✓', 'Đã gửi câu hỏi và câu trả lời qua Telegram', '#15803d', 3000);
     return { ok: true, targets: ['Telegram'] };
   }
+
+  globalThis.RCGPTGemini = Object.freeze({ handleGeminiDelivery });
 
   chrome.runtime.onMessage.addListener((message, sender, reply) => {
     if (message?.type !== 'ASK_GEMINI_AND_DELIVER') return;
