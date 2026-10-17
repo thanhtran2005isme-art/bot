@@ -191,7 +191,9 @@
             }
 
             if (mode === 'gemini') {
-              showToast('ĐÃ GỬI ĐÁP ÁN QUA TELEGRAM' + (response.model ? ' · Model: ' + response.model : ''), 'success', 7000);
+              const elapsed = Number(response.durationMs);
+              const timing = Number.isFinite(elapsed) && elapsed > 0 ? ' · ' + (elapsed / 1000).toFixed(1) + ' giây' : '';
+              showToast('ĐÃ GỬI ĐÁP ÁN QUA TELEGRAM' + timing + (response.model ? ' · Model: ' + response.model : ''), 'success', 7000);
             } else if (mode === 'chatgpt') {
               showToast('Đã gửi văn bản sang ChatGPT Web.', 'success', 5000);
             } else {
