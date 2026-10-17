@@ -84,7 +84,7 @@ Sau khi pull mã mới và bấm Reload tại `chrome://extensions/`, hãy tải
 
 
 ### Tối ưu phản hồi và bảo vệ bridge (v2.6.9)
-- Với model Gemini 3/4, dùng `thinkingLevel: low` cho luồng trả lời đáp án ngắn và bỏ `temperature` không còn phù hợp với dòng model mới; model đời cũ vẫn giữ `temperature: 0.2`.
+- Với model Gemini 3/4, mặc định dùng `thinkingLevel: low` để giảm độ trễ; trong Options có thể chọn **Nhanh / Cân bằng / Sâu**. Model đời cũ bỏ qua thinking level và vẫn dùng `temperature: 0.2`, còn dòng Gemini 3/4 không gửi tham số `temperature` không phù hợp.
 - Thông báo thành công hiển thị tổng thời gian; trang Options lưu riêng thời gian Gemini và Telegram để dễ xác định bước nào chậm.
 - Telegram có timeout 15 giây; tải danh sách model có timeout 15 giây để tránh giao diện chờ vô hạn.
 - Nhấp chuột phải lặp lại cùng câu hỏi trong lúc request đang chạy sẽ dùng chung request; chỉ lần gửi thành công mới được ghi nhận để chống báo thành công giả.
