@@ -1,3 +1,5 @@
+importScripts('gemini-delivery.js');
+
 const CHATGPT_URL = 'https://chatgpt.com/';
 const BRIDGE_URL = 'http://127.0.0.1:8765/screen-text';
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -76,11 +78,7 @@ async function deliver(tabId, text) {
 async function activateForPaste(tab) {
   try {
     const activeTab = await chrome.tabs.update(tab.id, { active: true });
-
-    // Do not await window focus. The tab is already active, so the content
-    // script can paste immediately while Chrome finishes focusing the window.
     chrome.windows.update(activeTab.windowId, { focused: true }).catch(() => {});
-
     return activeTab;
   } catch (_) {
     return tab;
@@ -105,9 +103,6 @@ async function sendToChatGPT(prompt) {
     return deliver(tab.id, text);
   }
 
-  // Contenteditable editing is much faster and more reliable once ChatGPT is
-  // the active tab. Activate first, then paste immediately; do not wait for
-  // a separate window-focus round trip.
   tab = await activateForPaste(tab);
   return deliver(tab.id, text);
 }
@@ -141,31 +136,29 @@ async function readPhoneAndSend() {
     try {
       data = await response.json();
     } catch (_) {
-      throw new Error(`Bridge trả về dữ liệu không hợp lệ (HTTP ${response.status}).`);
+      throw new Error('Bridge trả về dữ liệu không hợp lệ (HTTP ' + response.status + ').');
     }
 
     if (!response.ok || !data?.ok) {
-      throw new Error(data?.error || `Bridge lỗi HTTP ${response.status}.`);
+      throw new Error(data?.error || 'Bridge lỗi HTTP ' + response.status + '.');
     }
 
     const text = String(data.text || '').trim();
-    if (!text) {
-      throw new Error('Không tìm thấy text trên màn hình Android.');
-    }
+    if (!text) throw new Error('Không tìm thấy text trên màn hình Android.');
 
     const mode = data.ocrUsed ? 'OCR' : 'UI';
-    await setActionState('→', `Đã đọc ${data.items || '?'} dòng (${mode}). Đang gửi ChatGPT…`);
+    await setActionState('→', 'Đã đọc ' + (data.items || '?') + ' dòng (' + mode + '). Đang gửi ChatGPT…');
     const result = await sendToChatGPT(makePhonePrompt(text));
     if (!result?.ok) throw new Error(result?.error || 'Không gửi được sang ChatGPT.');
 
-    await setActionState('✓', `Đã gửi màn hình Android sang ChatGPT (${mode})`, 1400);
+    await setActionState('✓', 'Đã gửi màn hình Android sang ChatGPT (' + mode + ')', 1400);
     return { ok: true, items: data.items || 0, ocrUsed: !!data.ocrUsed };
   } catch (error) {
     const message = error?.name === 'AbortError'
       ? 'Bridge/ADB/OCR phản hồi quá lâu.'
       : String(error?.message || error);
     console.error('[Android → ChatGPT]', message);
-    await setActionState('!', `Lỗi: ${message}`, 3500);
+    await setActionState('!', 'Lỗi: ' + message, 3500);
     return { ok: false, error: message };
   } finally {
     clearTimeout(timeout);
