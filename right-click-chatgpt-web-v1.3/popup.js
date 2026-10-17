@@ -47,20 +47,37 @@
     });
   }
 
+  function updateLastRun(status) {
+    if (!status) {
+      $('lastRun').textContent = 'Gemini gần nhất: chưa chạy.';
+      return;
+    }
+    const state = status.ok === true ? 'OK' : status.ok === false ? 'LỖI' : 'ĐANG CHẠY';
+    $('lastRun').textContent = 'Gemini gần nhất [' + state + '] · ' +
+      (status.model || 'model chưa rõ') + ' · ' + (status.message || '');
+    $('lastRun').style.color = status.ok === false ? '#dc2626' : status.ok === true ? '#16a34a' : 'GrayText';
+  }
+
   function updateConfigSummary() {
     chrome.storage.local.get({
       geminiApiKey: '',
       telegramBotToken: '',
       telegramChatId: '',
-      geminiModel: 'gemini-3.8-flash'
+      geminiModel: 'gemini-3.8-flash',
+      geminiLastStatus: null
     }, settings => {
       const gemini = settings.geminiApiKey ? 'Gemini API: đã nhập' : 'Gemini API: chưa nhập key';
       const telegram = settings.telegramBotToken && settings.telegramChatId
         ? 'Telegram: đã cấu hình'
         : 'Telegram: chưa đủ Bot Token / Chat ID';
       $('config').textContent = gemini + ' · ' + telegram + ' · Model: ' + (settings.geminiModel || 'gemini-3.8-flash');
+      updateLastRun(settings.geminiLastStatus);
     });
   }
+
+  chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName === 'local' && changes.geminiLastStatus) updateLastRun(changes.geminiLastStatus.newValue);
+  });
 
   $('settings').addEventListener('click', () => {
     chrome.runtime.openOptionsPage().catch(error => setStatus('Không mở được trang cài đặt: ' + String(error?.message || error), 'error'));
