@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Trợ lý AI</title>
+  <style>
+    :root { color-scheme: light dark; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+    body { width: 330px; margin: 0; padding: 16px; box-sizing: border-box; }
+    h1 { font-size: 18px; margin: 0 0 4px; }
+    .sub { color: GrayText; font-size: 12px; margin: 0 0 14px; }
+    .item { display: flex; gap: 10px; align-items: flex-start; padding: 11px; margin: 8px 0; border: 1px solid #8885; border-radius: 10px; background: transparent; color: inherit; width: 100%; text-align: left; cursor: pointer; font: inherit; }
+    .item:hover { background: color-mix(in srgb, CanvasText 7%, Canvas); }
+    .item:disabled { opacity: .55; cursor: wait; }
+    .icon { font-size: 20px; width: 26px; flex: 0 0 26px; text-align: center; }
+    .title { display: block; font-size: 13px; font-weight: 700; margin-bottom: 2px; }
+    .desc { display: block; color: GrayText; font-size: 11px; line-height: 1.35; }
+    .settings { display: block; width: 100%; padding: 9px 12px; margin-top: 10px; border: 1px solid #8887; border-radius: 8px; background: transparent; color: inherit; font: inherit; font-weight: 600; cursor: pointer; }
+    .config { font-size: 11px; color: GrayText; line-height: 1.5; padding-top: 8px; }
+    .status { min-height: 18px; padding: 7px 0 2px; font-size: 12px; overflow-wrap: anywhere; }
+    .status.error { color: #dc2626; }
+    .status.ok { color: #16a34a; }
+    hr { border: 0; border-top: 1px solid #8884; margin: 12px 0 8px; }
+  </style>
+</head>
+<body>
+  <h1>Trợ lý AI</h1>
+  <p class="sub">Chọn một chức năng. Bấm biểu tượng extension sẽ không tự chạy ADB nữa.</p>
+
+  <button class="item" id="chatgpt" type="button">
+    <span class="icon">💬</span>
+    <span><span class="title">1. ChatGPT Web</span><span class="desc">Gửi văn bản đang bôi đen sang ChatGPT</span></span>
+  </button>
+
+  <button class="item" id="gemini" type="button">
+    <span class="icon">✨</span>
+    <span><span class="title">2. Gemini → Telegram</span><span class="desc">Gemini trả lời câu hỏi và gửi đáp án qua Telegram</span></span>
+  </button>
+
+  <button class="item" id="android" type="button">
+    <span class="icon">📱</span>
+    <span><span class="title">3. Đọc màn hình Android</span><span class="desc">Dùng ADB/OCR rồi gửi văn bản sang ChatGPT</span></span>
+  </button>
+
+  <div id="status" class="status" role="status" aria-live="polite">Sẵn sàng.</div>
+  <hr>
+  <button id="settings" class="settings" type="button">⚙ Cài đặt API key / Telegram / Model</button>
+  <div id="config" class="config">Đang kiểm tra cấu hình…</div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
