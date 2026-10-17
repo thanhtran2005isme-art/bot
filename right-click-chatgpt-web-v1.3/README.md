@@ -53,3 +53,17 @@ Chuẩn bị:
 - API key và Bot Token được lưu trong `chrome.storage.local`; đừng commit token thật hoặc chia sẻ chúng.
 - Extension cần quyền `<all_urls>` để cung cấp các thao tác trên website; chỉ cài bản bạn tin tưởng.
 - Bridge Android chỉ bind tại `127.0.0.1`.
+
+
+## Chẩn đoán model Gemini không chạy
+
+Trong Options có nút **Kiểm tra model đang chọn**. Chọn model rồi bấm nút này để gọi thử một yêu cầu rất ngắn bằng chính API key hiện tại. Nút này kiểm tra việc tạo nội dung thực tế, không chỉ dựa vào danh sách `supportedGenerationMethods`.
+
+Sau mỗi lần chuột phải, kết quả/lỗi gần nhất cũng được lưu và hiển thị trong popup và trang Options, gồm model, giai đoạn lỗi và thông báo API. Các lỗi thường gặp:
+- `400`: yêu cầu/tham số không hợp lệ.
+- `401`: API key không hợp lệ hoặc hết hiệu lực.
+- `403`: key/project không có quyền dùng model.
+- `404`: sai ID hoặc model không khả dụng qua endpoint này.
+- `429`: hết quota hoặc chạm giới hạn tốc độ.
+
+Lưu ý: tải được model trong danh sách chưa đảm bảo model đó tạo nội dung được với project/key hiện tại; hãy chạy kiểm tra model thực tế.
