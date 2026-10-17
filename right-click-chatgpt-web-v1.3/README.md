@@ -67,3 +67,8 @@ Sau mỗi lần chuột phải, kết quả/lỗi gần nhất cũng được l�
 - `429`: hết quota hoặc chạm giới hạn tốc độ.
 
 Lưu ý: tải được model trong danh sách chưa đảm bảo model đó tạo nội dung được với project/key hiện tại; hãy chạy kiểm tra model thực tế.
+
+
+## Thông báo khi chuột phải
+
+Khi bôi đen văn bản rồi chuột phải, extension hiện một thông báo trực tiếp trên trang: đang xử lý, thành công, hoặc lỗi chi tiết. Nếu không nhận được phản hồi từ background, thông báo hướng dẫn kiểm tra Service worker và tải lại trang. Không cần mở popup để biết thao tác có chạy hay không.
