@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Right Click → ChatGPT Web",
-  "version": "2.6.1",
+  "version": "2.6.2",
   "description": "Bôi đen văn bản rồi chuột phải để chọn ChatGPT Web hoặc Gemini → Telegram; hỗ trợ đọc màn hình Android bằng ADB/OCR.",
   "permissions": ["tabs", "scripting", "storage", "contextMenus"],
   "host_permissions": [
@@ -37,6 +37,7 @@
     }
   ],
   "action": {
-    "default_title": "Trợ lý AI: ChatGPT, Gemini → Telegram, Android OCR"
+    "default_title": "Mở lựa chọn AI và cài đặt",
+    "default_popup": "popup.html"
   }
 }
