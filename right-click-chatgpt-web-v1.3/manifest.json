@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Right Click → ChatGPT Web",
-  "version": "2.6.5",
-  "description": "Chọn chế độ AI mặc định; hỗ trợ kiểm tra model Gemini và xem lỗi gần nhất khi gửi đáp án qua Telegram.",
+  "version": "2.6.6",
+  "description": "Chọn chế độ AI mặc định; khi chuột phải hiện trạng thái xử lý/thành công/lỗi rõ ràng.",
   "permissions": [
     "tabs",
     "scripting",
