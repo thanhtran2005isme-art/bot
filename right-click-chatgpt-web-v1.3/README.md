@@ -8,16 +8,19 @@ Chrome Extension Manifest V3 với 3 lựa chọn ở menu chuột phải.
 2. **Gemini trả lời → Telegram** — bôi đen câu hỏi, chuột phải → **Trợ lý AI → 2. Gemini trả lời → Telegram**. Extension gọi Gemini API rồi gửi cả câu hỏi và câu trả lời tới Telegram.
 3. **Đọc màn hình Android → ChatGPT** — kết nối điện thoại bằng ADB, giữ bridge chạy, chuột phải trên trang → **Trợ lý AI → 3. Đọc màn hình Android → ChatGPT**. Chức năng này đọc màn hình điện thoại hiện tại và gửi nội dung sang ChatGPT Web. Nút nổi 📱 và icon extension vẫn hoạt động như trước.
 
-Chỉ mục bạn bấm mới được chạy. Không cần giữ Alt và không còn tự động gửi câu hỏi chỉ vì mở menu chuột phải.
+Chỉ mục bạn bấm mới được chạy. Không cần giữ Alt và không tự gửi câu hỏi chỉ vì mở menu chuột phải.
 
-## 2. Cấu hình Gemini và Telegram
+## 2. Cấu hình Gemini model và Telegram
 
-### Gemini
+### Gemini API
 
 1. Mở `chrome://extensions/`.
 2. Chọn extension → **Details** → **Extension options**.
-3. Lấy Gemini API key từ [Google AI Studio](https://aistudio.google.com/apikey), nhập và lưu.
-4. Model mặc định là `gemini-3.8-flash`; đổi trong Options nếu API key của bạn không có quyền truy cập model đó.
+3. Lấy Gemini API key từ [Google AI Studio](https://aistudio.google.com/apikey), rồi dán vào trang cấu hình.
+4. Trong **Model Gemini sử dụng**, chọn một model có sẵn hoặc bấm **Tải danh sách model từ API** để lấy những model hỗ trợ `generateContent` mà API key của bạn truy cập được.
+5. Chọn model muốn dùng và bấm **Lưu cấu hình**.
+
+Danh sách model được lấy từ endpoint chính thức `GET https://generativelanguage.googleapis.com/v1beta/models`, lọc theo `supportedGenerationMethods` có `generateContent`. <https://ai.google.dev/api/models>
 
 ### Telegram
 
