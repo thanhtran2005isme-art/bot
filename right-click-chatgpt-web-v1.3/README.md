@@ -57,7 +57,7 @@ Chuẩn bị:
 
 ## Chẩn đoán model Gemini không chạy
 
-Trong Options có nút **Kiểm tra model đang chọn**. Chọn model rồi bấm nút này để gọi thử một yêu cầu rất ngắn bằng chính API key hiện tại. Nút này kiểm tra việc tạo nội dung thực tế, không chỉ dựa vào danh sách `supportedGenerationMethods`.
+Trong Options có nút **Kiểm tra model đang chọn** để thử riêng một model, và nút **Kiểm tra tất cả model** để tự động thử hàng loạt các model hỗ trợ `generateContent` với tối đa 3 yêu cầu song song. Model chạy được hiện trong danh sách xanh **Model chạy được**; bấm model để chọn rồi bấm Lưu cấu hình. Các model lỗi và lý do hiển thị riêng bên dưới. Đây là kiểm tra tạo nội dung thực tế, không chỉ dựa vào danh sách `supportedGenerationMethods`.
 
 Sau mỗi lần chuột phải, kết quả/lỗi gần nhất cũng được lưu và hiển thị trong popup và trang Options, gồm model, giai đoạn lỗi và thông báo API. Các lỗi thường gặp:
 - `400`: yêu cầu/tham số không hợp lệ.
@@ -66,7 +66,7 @@ Sau mỗi lần chuột phải, kết quả/lỗi gần nhất cũng được l�
 - `404`: sai ID hoặc model không khả dụng qua endpoint này.
 - `429`: hết quota hoặc chạm giới hạn tốc độ.
 
-Lưu ý: tải được model trong danh sách chưa đảm bảo model đó tạo nội dung được với project/key hiện tại; hãy chạy kiểm tra model thực tế.
+Lưu ý: tải được model trong danh sách chưa đảm bảo model đó tạo nội dung được với project/key hiện tại. Kiểm tra hàng loạt sẽ gửi một request ngắn tới từng model; kết quả lỗi quota/429 có thể cần thử lại sau.
 
 
 ## Thông báo khi chuột phải
