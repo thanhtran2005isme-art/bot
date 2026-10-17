@@ -64,13 +64,17 @@
       telegramBotToken: '',
       telegramChatId: '',
       geminiModel: 'gemini-3.8-flash',
+      geminiThinkingLevel: 'low',
       geminiLastStatus: null
     }, settings => {
       const gemini = settings.geminiApiKey ? 'Gemini API: đã nhập' : 'Gemini API: chưa nhập key';
       const telegram = settings.telegramBotToken && settings.telegramChatId
         ? 'Telegram: đã cấu hình'
         : 'Telegram: chưa đủ Bot Token / Chat ID';
-      $('config').textContent = gemini + ' · ' + telegram + ' · Model: ' + (settings.geminiModel || 'gemini-3.8-flash');
+      const levels = { low: 'Nhanh', medium: 'Cân bằng', high: 'Sâu' };
+      const thinking = levels[settings.geminiThinkingLevel] || levels.low;
+      $('config').textContent = gemini + ' · ' + telegram + ' · Model: ' +
+        (settings.geminiModel || 'gemini-3.8-flash') + ' · Suy luận: ' + thinking;
       updateLastRun(settings.geminiLastStatus);
     });
   }
