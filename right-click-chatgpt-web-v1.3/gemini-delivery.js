@@ -177,14 +177,15 @@
     for (const chunk of chunks) {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 15000);
-      let response;
       try {
-        response = await fetch('https://api.telegram.org/bot' + token + '/sendMessage', {
+        const response = await fetch('https://api.telegram.org/bot' + token + '/sendMessage', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ chat_id: chatId, text: chunk }),
           signal: controller.signal
         });
+        const data = await readJsonResponse(response, 'Telegram API');
+        if (!data?.ok) throw new Error('Telegram API: ' + (data?.description || 'gửi tin nhắn thất bại'));
       } catch (error) {
         if (error?.name === 'AbortError') {
           throw new Error('Telegram API phản hồi quá lâu (15 giây). Kiểm tra Telegram trước khi gửi lại vì yêu cầu có thể đã được nhận.');
@@ -193,8 +194,6 @@
       } finally {
         clearTimeout(timeout);
       }
-      const data = await readJsonResponse(response, 'Telegram API');
-      if (!data?.ok) throw new Error('Telegram API: ' + (data?.description || 'gửi tin nhắn thất bại'));
     }
     return 'Telegram';
   }
