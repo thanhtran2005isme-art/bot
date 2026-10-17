@@ -1,6 +1,6 @@
 # Right Click AI: ChatGPT Web + Gemini → Telegram + Android OCR
 
-Chrome Extension Manifest V3 với popup khi bấm icon extension, đồng thời cung cấp 3 lựa chọn trong menu chuột phải.
+Chrome Extension Manifest V3 với popup để chọn một chế độ mặc định; bôi đen văn bản rồi chuột phải sẽ tự chạy chế độ đang lưu.
 
 ## 1. Chọn chế độ mặc định
 
@@ -9,7 +9,7 @@ Bấm icon extension để mở popup và **tích chọn một trong ba chế đ
 2. **Gemini → Telegram** — dùng Gemini API trả lời, sau đó gửi cả câu hỏi và đáp án tới Telegram.
 3. **Đọc màn hình Android** — đọc nội dung điện thoại qua ADB/OCR rồi gửi sang ChatGPT.
 
-Lựa chọn được lưu trong `chrome.storage.local` và giữ nguyên cho những lần sau. Khi sử dụng hằng ngày, không cần mở popup để chọn lại: **bôi đen văn bản trên trang web rồi nhấn chuột phải**, extension tự chạy chế độ đang lưu. Khi đang ở chế độ Android, thao tác bôi đen + chuột phải là thao tác kích hoạt; nội dung được đọc là màn hình điện thoại Android, không phải đoạn văn bản trên máy tính. Chuột phải ở nơi không có văn bản bôi đen vẫn hiện menu bình thường.
+Lựa chọn được lưu trong `chrome.storage.local` và giữ nguyên cho những lần sau. Khi sử dụng hằng ngày, không cần mở popup để chọn lại: **bôi đen văn bản trên trang web rồi nhấn chuột phải**, extension tự chạy chế độ đang lưu. Khi đang ở chế độ Android, thao tác bôi đen + chuột phải là thao tác kích hoạt; nội dung được đọc là màn hình điện thoại Android, không phải đoạn văn bản trên máy tính. Chuột phải ở nơi không có văn bản bôi đen vẫn hiện menu ngữ cảnh bình thường.
 
 Nút **Cài đặt API key / Telegram / Model** mở trang Options để cấu hình Gemini API key, model, Telegram Bot Token và Chat ID.
 
@@ -37,7 +37,7 @@ Chuẩn bị:
 - Cài Tesseract OCR kèm dữ liệu tiếng Việt bằng `install-vietnamese-ocr.bat`.
 - Chạy `start-bridge.bat` và giữ cửa sổ bridge mở. Chạy ADB daemon riêng không thay cho Python bridge tại `127.0.0.1:8765`.
 
-Bạn có thể mở popup hoặc menu chuột phải để chọn mục Android OCR. Nút nổi 📱 và thao tác từ icon extension trước đây vẫn được thay bằng nút trong popup.
+Để dùng Android OCR, chọn chế độ này trong popup một lần. Từ đó, bôi đen bất kỳ đoạn văn bản nào trên máy tính rồi chuột phải sẽ kích hoạt việc đọc màn hình điện thoại qua bridge. Bấm icon extension không tự đọc màn hình.
 
 ## Thành phần chính
 - `manifest.json`: quyền extension và popup khi bấm icon.
