@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
   "name": "Right Click → ChatGPT Web",
-  "version": "2.5.1",
-  "description": "Chuột phải gửi văn bản sang ChatGPT Web; Alt + chuột phải hỏi Gemini và gửi câu trả lời qua Telegram; đọc màn hình Android bằng ADB/OCR.",
-  "permissions": ["tabs", "scripting", "storage"],
+  "version": "2.6.0",
+  "description": "Bôi đen văn bản rồi chuột phải để chọn ChatGPT Web hoặc Gemini → Telegram; hỗ trợ đọc màn hình Android bằng ADB/OCR.",
+  "permissions": ["tabs", "scripting", "storage", "contextMenus"],
   "host_permissions": [
     "<all_urls>",
     "http://127.0.0.1:8765/*",
@@ -37,6 +37,6 @@
     }
   ],
   "action": {
-    "default_title": "Đọc màn hình điện thoại → ChatGPT"
+    "default_title": "Trợ lý AI: ChatGPT, Gemini → Telegram, Android OCR"
   }
 }
