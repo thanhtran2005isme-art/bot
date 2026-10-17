@@ -20,6 +20,15 @@
     .model-actions { display: flex; gap: 10px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
     .status { display: block; margin-top: 8px; }
     .save-status { margin-left: 12px; }
+    .model-list { display: grid; gap: 7px; max-height: 320px; overflow: auto; margin-top: 8px; }
+    .model-row { width: 100%; box-sizing: border-box; text-align: left; border: 1px solid #8886; border-radius: 8px; padding: 10px 12px; background: transparent; font-weight: 400; }
+    button.model-row { cursor: pointer; }
+    .model-row strong { display: block; overflow-wrap: anywhere; }
+    .model-row small { display: block; color: GrayText; margin-top: 3px; line-height: 1.4; overflow-wrap: anywhere; }
+    .model-row.success { border-color: #16a34a88; }
+    .model-row.failure { border-color: #dc262688; }
+    .list-heading { margin: 18px 0 4px; font-size: 16px; }
+    .empty-list { color: GrayText; font-size: 13px; padding: 8px 0; }
     code { overflow-wrap: anywhere; }
   </style>
 </head>
@@ -42,9 +51,14 @@
     <div class="model-actions">
       <button id="loadModels" class="secondary" type="button">Tải danh sách model từ API</button>
       <button id="testModel" class="secondary" type="button">Kiểm tra model đang chọn</button>
+      <button id="testAllModels" class="secondary" type="button">Kiểm tra tất cả model</button>
     </div>
-    <p id="modelHelp" class="note">Tải danh sách để xem model được API liệt kê. Sau đó bấm “Kiểm tra model đang chọn” để gửi thử một prompt nhỏ và xác minh model thực sự chạy được với API key hiện tại.</p>
+    <p id="modelHelp" class="note">Tải danh sách model rồi bấm “Kiểm tra tất cả model”. Extension tự kiểm tra nhiều model cùng lúc; model chạy được sẽ xuất hiện ở danh sách bên dưới. Bấm vào model xanh để chọn, sau đó bấm Lưu cấu hình.</p>
     <span id="modelStatus" class="status" role="status" aria-live="polite"></span>
+    <h3 class="list-heading">Model chạy được (<span id="workingModelCount">0</span>)</h3>
+    <div id="workingModelsList" class="model-list" aria-live="polite"><div class="empty-list">Chưa kiểm tra model.</div></div>
+    <h3 class="list-heading">Model lỗi / chưa chạy được (<span id="failedModelCount">0</span>)</h3>
+    <div id="failedModelsList" class="model-list" aria-live="polite"><div class="empty-list">Chưa kiểm tra model.</div></div>
     <p><strong>Lần Gemini gần nhất:</strong> <span id="lastRunStatus" class="status" role="status" aria-live="polite">Chưa có dữ liệu.</span></p>
   </fieldset>
 
