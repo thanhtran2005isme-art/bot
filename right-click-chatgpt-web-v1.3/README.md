@@ -72,3 +72,6 @@ Lưu ý: tải được model trong danh sách chưa đảm bảo model đó t�
 ## Thông báo khi chuột phải
 
 Khi bôi đen văn bản rồi chuột phải, extension hiện một thông báo trực tiếp trên trang: đang xử lý, thành công, hoặc lỗi chi tiết. Nếu không nhận được phản hồi từ background, thông báo hướng dẫn kiểm tra Service worker và tải lại trang. Không cần mở popup để biết thao tác có chạy hay không.
+
+
+Sau khi pull mã mới và bấm Reload tại `chrome://extensions/`, hãy tải lại tab đang sử dụng (Ctrl+R hoặc F5) để content script mới được nạp vào trang. Nếu không tải lại trang cũ, trang có thể vẫn chạy bản content script cũ.
