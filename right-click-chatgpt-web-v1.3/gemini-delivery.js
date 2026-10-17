@@ -29,7 +29,34 @@
     });
   }
 
-  async function readJsonResponse(response, serviceName) {
+  function errorHint(status) {
+    switch (Number(status)) {
+      case 400: return ' Kiểm tra yêu cầu/tham số gửi tới model.';
+      case 401: return ' API key không hợp lệ hoặc đã hết hiệu lực.';
+      case 402: return ' Tài khoản API có thể đã hết tín dụng thanh toán.';
+      case 403: return ' API key hoặc project không có quyền dùng model này.';
+      case 404: return ' Không tìm thấy model hoặc model không khả dụng qua endpoint này.';
+      case 429: return ' Đã chạm giới hạn quota/tốc độ; hãy kiểm tra quota hoặc thử lại sau.';
+      case 500:
+      case 502:
+      case 503: return ' Dịch vụ có thể đang lỗi tạm thời; hãy thử lại sau.';
+      default: return '';
+    }
+  }
+
+  function saveLastStatus(status) {
+    return new Promise(resolve => {
+      try {
+        chrome.storage.local.set({
+          geminiLastStatus: { ...status, time: Date.now() }
+        }, () => resolve());
+      } catch (_) {
+        resolve();
+      }
+    });
+  }
+
+  async function readJsonResponse(response, serviceName, model = '') {
     let data = {};
     try {
       data = await response.json();
@@ -37,7 +64,10 @@
 
     if (!response.ok) {
       const detail = data?.error?.message || data?.message || data?.description || ('HTTP ' + response.status);
-      throw new Error(serviceName + ': ' + detail);
+      const code = data?.error?.status ? ' (' + data.error.status + ')' : '';
+      const context = model ? 'Model "' + model + '" — ' : '';
+      const hint = serviceName === 'Gemini API' ? errorHint(response.status) : '';
+      throw new Error(context + serviceName + ' HTTP ' + response.status + code + ': ' + detail + hint);
     }
     return data;
   }
@@ -79,7 +109,7 @@
         }
       );
 
-      const data = await readJsonResponse(response, 'Gemini API');
+      const data = await readJsonResponse(response, 'Gemini API', model);
       const candidate = data?.candidates?.[0];
       const answer = (candidate?.content?.parts || [])
         .map(part => String(part?.text || ''))
@@ -157,13 +187,42 @@
     lastRequestText = text;
     lastRequestAt = now;
 
-    await setGeminiState('AI', 'Đang gửi câu hỏi sang Gemini…', '#4f46e5', 0);
-    const settings = await getSettings();
-    const answer = await askGemini(text, settings);
-    await setGeminiState('→', 'Gemini đã trả lời. Đang gửi qua Telegram…', '#0f766e', 0);
-    await sendTelegram(settings, makeMessage(answer));
-    await setGeminiState('✓', 'Đã gửi đáp án qua Telegram', '#15803d', 3000);
-    return { ok: true, targets: ['Telegram'] };
+    let settings = null;
+    let model = DEFAULT_MODEL;
+    let stage = 'Gemini API';
+    try {
+      settings = await getSettings();
+      model = String(settings.geminiModel || DEFAULT_MODEL).trim();
+      await saveLastStatus({
+        ok: null, model, stage, source: 'right-click',
+        message: 'Đang gửi câu hỏi tới model ' + model + '…'
+      });
+      await setGeminiState('AI', 'Đang gọi Gemini model ' + model + '…', '#4f46e5', 0);
+
+      const answer = await askGemini(text, settings);
+      stage = 'Telegram';
+      await saveLastStatus({
+        ok: null, model, stage, source: 'right-click',
+        message: 'Gemini trả lời được; đang gửi đáp án tới Telegram…'
+      });
+      await setGeminiState('→', 'Model ' + model + ' đã trả lời. Đang gửi Telegram…', '#0f766e', 0);
+
+      await sendTelegram(settings, makeMessage(answer));
+      await saveLastStatus({
+        ok: true, model, stage: 'Hoàn tất', source: 'right-click',
+        message: 'Đã gửi đáp án qua Telegram.'
+      });
+      await setGeminiState('✓', 'Đã gửi đáp án qua Telegram · Model: ' + model, '#15803d', 3000);
+      return { ok: true, targets: ['Telegram'], model };
+    } catch (error) {
+      const detail = String(error?.message || error);
+      await saveLastStatus({
+        ok: false, model, stage, source: 'right-click',
+        message: detail
+      });
+      await setGeminiState('!', 'Model ' + model + ' · ' + detail, '#b91c1c', 0);
+      throw error;
+    }
   }
 
   globalThis.RCGPTGemini = Object.freeze({ handleGeminiDelivery });
