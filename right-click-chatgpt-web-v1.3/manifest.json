@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Right Click → ChatGPT Web",
-  "version": "2.6.3",
-  "description": "Chọn một chế độ AI mặc định; bôi đen văn bản rồi chuột phải để chạy ChatGPT Web, Gemini → Telegram hoặc Android ADB/OCR.",
+  "version": "2.6.4",
+  "description": "Chọn chế độ AI mặc định; bôi đen rồi chuột phải để dùng ChatGPT Web, Gemini chỉ gửi đáp án qua Telegram hoặc Android ADB/OCR.",
   "permissions": [
     "tabs",
     "scripting",
