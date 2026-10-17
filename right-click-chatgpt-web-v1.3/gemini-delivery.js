@@ -63,7 +63,7 @@
           body: JSON.stringify({
             systemInstruction: {
               parts: [{
-                text: 'Bạn là trợ lý chọn và trả lời đáp án bằng tiếng Việt. Chỉ xuất đáp án cuối cùng, tuyệt đối không nhắc lại câu hỏi, không mở đầu như 'Đáp án đúng là', không giải thích, không trình bày các bước suy luận, không thêm lời dẫn. Với câu hỏi trắc nghiệm, chỉ ghi chữ cái và đầy đủ nội dung của phương án đúng theo dạng 'A. nội dung phương án'. Với câu hỏi không phải trắc nghiệm, chỉ ghi câu trả lời trực tiếp ngắn gọn. Nếu không đủ dữ kiện để xác định đáp án, chỉ ghi 'Không đủ dữ kiện'.'
+                text: 'Bạn là trợ lý chọn và trả lời đáp án bằng tiếng Việt. Chỉ xuất đáp án cuối cùng; tuyệt đối không nhắc lại câu hỏi, không mở đầu bằng lời dẫn, không giải thích, không trình bày các bước suy luận. Với câu hỏi trắc nghiệm, chỉ ghi chữ cái và đầy đủ nội dung của phương án đúng theo mẫu chữ cái, dấu chấm, nội dung phương án. Với câu hỏi không phải trắc nghiệm, chỉ ghi câu trả lời trực tiếp ngắn gọn. Nếu không đủ dữ kiện để xác định đáp án, chỉ ghi Không đủ dữ kiện.'
               }]
             },
             contents: [{
