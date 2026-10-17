@@ -1,13 +1,17 @@
 {
   "manifest_version": 3,
   "name": "Right Click → ChatGPT Web",
-  "version": "2.4.4",
-  "description": "Bôi đen rồi chuột phải để tự gửi sang ChatGPT Web; đọc màn hình Android qua ADB và tự fallback OCR khi UIAutomator thiếu text.",
-  "permissions": ["tabs", "scripting"],
+  "version": "2.5.0",
+  "description": "Chuột phải gửi văn bản sang ChatGPT Web; Alt + chuột phải hỏi Gemini và gửi câu trả lời qua Telegram hoặc Zalo OA; đọc màn hình Android bằng ADB/OCR.",
+  "permissions": ["tabs", "scripting", "storage"],
   "host_permissions": [
     "<all_urls>",
-    "http://127.0.0.1:8765/*"
+    "http://127.0.0.1:8765/*",
+    "https://generativelanguage.googleapis.com/*",
+    "https://api.telegram.org/*",
+    "https://openapi.zalo.me/*"
   ],
+  "options_page": "options.html",
   "background": {
     "service_worker": "background-direct-v2.js"
   },
