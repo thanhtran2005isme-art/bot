@@ -25,7 +25,7 @@
 </head>
 <body>
   <h1>Gemini → Telegram</h1>
-  <p class="intro">Bôi đen câu hỏi, chuột phải → Trợ lý AI → Gemini trả lời → Telegram. Chuột phải thường vẫn có mục gửi sang ChatGPT Web.</p>
+  <p class="intro">Chọn chế độ Gemini → Telegram trong popup; bôi đen văn bản rồi chuột phải để chạy. Nếu model lỗi, trang này sẽ lưu lại model và chi tiết lỗi để xem sau.</p>
 
   <fieldset>
     <legend>Gemini API</legend>
@@ -41,9 +41,11 @@
     </select>
     <div class="model-actions">
       <button id="loadModels" class="secondary" type="button">Tải danh sách model từ API</button>
+      <button id="testModel" class="secondary" type="button">Kiểm tra model đang chọn</button>
     </div>
-    <p id="modelHelp" class="note">Dán API key rồi tải danh sách để hiển thị những model hỗ trợ generateContent mà key của bạn truy cập được. Model đã chọn sẽ được lưu lại.</p>
+    <p id="modelHelp" class="note">Tải danh sách để xem model được API liệt kê. Sau đó bấm “Kiểm tra model đang chọn” để gửi thử một prompt nhỏ và xác minh model thực sự chạy được với API key hiện tại.</p>
     <span id="modelStatus" class="status" role="status" aria-live="polite"></span>
+    <p><strong>Lần Gemini gần nhất:</strong> <span id="lastRunStatus" class="status" role="status" aria-live="polite">Chưa có dữ liệu.</span></p>
   </fieldset>
 
   <fieldset>
