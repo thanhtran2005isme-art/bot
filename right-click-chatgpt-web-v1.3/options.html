@@ -27,6 +27,7 @@
     .model-row small { display: block; color: GrayText; margin-top: 3px; line-height: 1.4; overflow-wrap: anywhere; }
     .model-row.success { border-color: #16a34a88; }
     .model-row.failure { border-color: #dc262688; }
+    .model-row.deferred { border-color: #d9770688; }
     .list-heading { margin: 18px 0 4px; font-size: 16px; }
     .empty-list { color: GrayText; font-size: 13px; padding: 8px 0; }
     code { overflow-wrap: anywhere; }
@@ -57,8 +58,10 @@
     <span id="modelStatus" class="status" role="status" aria-live="polite"></span>
     <h3 class="list-heading">Model chạy được (<span id="workingModelCount">0</span>)</h3>
     <div id="workingModelsList" class="model-list" aria-live="polite"><div class="empty-list">Chưa kiểm tra model.</div></div>
-    <h3 class="list-heading">Model lỗi / chưa chạy được (<span id="failedModelCount">0</span>)</h3>
+    <h3 class="list-heading">Model lỗi xác định (<span id="failedModelCount">0</span>)</h3>
     <div id="failedModelsList" class="model-list" aria-live="polite"><div class="empty-list">Chưa kiểm tra model.</div></div>
+    <h3 class="list-heading">Quota / lỗi tạm thời — chưa kết luận (<span id="deferredModelCount">0</span>)</h3>
+    <div id="deferredModelsList" class="model-list" aria-live="polite"><div class="empty-list">Chưa kiểm tra model.</div></div>
     <p><strong>Lần Gemini gần nhất:</strong> <span id="lastRunStatus" class="status" role="status" aria-live="polite">Chưa có dữ liệu.</span></p>
   </fieldset>
 
