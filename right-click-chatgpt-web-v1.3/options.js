@@ -26,6 +26,115 @@
     element.style.color = isError ? '#dc2626' : '#16a34a';
   }
 
+  function apiErrorHint(status) {
+    switch (Number(status)) {
+      case 400: return 'Kiểm tra yêu cầu/tham số của model.';
+      case 401: return 'API key không hợp lệ hoặc đã hết hiệu lực.';
+      case 402: return 'Tài khoản API có thể đã hết tín dụng thanh toán.';
+      case 403: return 'API key/project không có quyền dùng model này.';
+      case 404: return 'Không tìm thấy model hoặc model không khả dụng qua endpoint này.';
+      case 429: return 'Có thể đã chạm quota/giới hạn tốc độ; thử lại sau hoặc kiểm tra hạn mức.';
+      case 500:
+      case 502:
+      case 503: return 'Dịch vụ có thể đang lỗi tạm thời; thử lại sau.';
+      default: return '';
+    }
+  }
+
+  function persistLastStatus(status) {
+    return new Promise(resolve => {
+      chrome.storage.local.set({ geminiLastStatus: { ...status, time: Date.now() } }, resolve);
+    });
+  }
+
+  function renderLastStatus(status) {
+    const el = $('lastRunStatus');
+    if (!status) {
+      el.textContent = 'Chưa có lần chạy hoặc kiểm tra model nào.';
+      el.style.color = 'GrayText';
+      return;
+    }
+    const when = status.time ? new Date(status.time).toLocaleString() : '';
+    const state = status.ok === true ? 'THÀNH CÔNG' : status.ok === false ? 'LỖI' : 'ĐANG CHẠY';
+    el.textContent = '[' + state + '] Model: ' + (status.model || 'chưa rõ') +
+      (status.stage ? ' · Bước: ' + status.stage : '') +
+      ' · ' + (status.message || '') + (when ? ' · ' + when : '');
+    el.style.color = status.ok === false ? '#dc2626' : status.ok === true ? '#16a34a' : 'GrayText';
+  }
+
+  function refreshLastStatus() {
+    chrome.storage.local.get({ geminiLastStatus: null }, values => renderLastStatus(values.geminiLastStatus));
+  }
+
+  async function testSelectedModel() {
+    const apiKey = $('geminiApiKey').value.trim();
+    const model = String(modelSelect.value || '').trim();
+    if (!apiKey) {
+      setStatus(modelStatus, 'Nhập Gemini API key trước khi kiểm tra model.', true);
+      $('geminiApiKey').focus();
+      return;
+    }
+    if (!model) {
+      setStatus(modelStatus, 'Hãy chọn một model trước.', true);
+      return;
+    }
+
+    const button = $('testModel');
+    button.disabled = true;
+    const originalLabel = button.textContent;
+    button.textContent = 'Đang kiểm tra…';
+    setStatus(modelStatus, 'Đang gọi thử model ' + model + ' bằng một yêu cầu ngắn…');
+
+    const abort = new AbortController();
+    const timeout = setTimeout(() => abort.abort(), 25000);
+    try {
+      const response = await fetch(
+        'https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+          body: JSON.stringify({
+            contents: [{ role: 'user', parts: [{ text: 'Reply with only OK.' }] }],
+            generationConfig: { temperature: 0, maxOutputTokens: 8 }
+          }),
+          signal: abort.signal,
+          cache: 'no-store'
+        }
+      );
+
+      let data = {};
+      try { data = await response.json(); } catch (_) {}
+      if (!response.ok) {
+        const detail = data?.error?.message || data?.message || ('HTTP ' + response.status);
+        const apiState = data?.error?.status ? ' (' + data.error.status + ')' : '';
+        throw new Error('Model "' + model + '" — Gemini API HTTP ' + response.status + apiState +
+          ': ' + detail + (apiErrorHint(response.status) ? ' ' + apiErrorHint(response.status) : ''));
+      }
+
+      const reply = (data?.candidates?.[0]?.content?.parts || [])
+        .map(part => String(part?.text || '')).join('').trim();
+      if (!reply) {
+        const reason = data?.promptFeedback?.blockReason || data?.candidates?.[0]?.finishReason || 'không có nội dung trả lời';
+        throw new Error('Model "' + model + '" đã nhận request nhưng không trả lời: ' + reason);
+      }
+
+      const message = 'Model "' + model + '" chạy được với API key này. Phản hồi thử: ' + reply;
+      setStatus(modelStatus, '✓ ' + message, false);
+      await persistLastStatus({ ok: true, model, stage: 'Kiểm tra model', source: 'model-test', message });
+    } catch (error) {
+      const detail = error?.name === 'AbortError'
+        ? 'Kiểm tra model "' + model + '" hết thời gian chờ (25 giây).'
+        : String(error?.message || error);
+      setStatus(modelStatus, '✕ ' + detail, true);
+      await persistLastStatus({ ok: false, model, stage: 'Kiểm tra model', source: 'model-test', message: detail });
+    } finally {
+      clearTimeout(timeout);
+      button.disabled = false;
+      button.textContent = originalLabel;
+      refreshLastStatus();
+    }
+  }
+
   function addModelOption(model, selectedModel) {
     const id = String(model.id || '').replace(/^models\//, '');
     if (!id) return;
@@ -147,6 +256,13 @@
   });
 
   $('loadModels').addEventListener('click', fetchAvailableModels);
+  $('testModel').addEventListener('click', testSelectedModel);
+  chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName === 'local' && changes.geminiLastStatus) {
+      renderLastStatus(changes.geminiLastStatus.newValue);
+    }
+  });
+  refreshLastStatus();
 
   $('save').addEventListener('click', () => {
     const values = {
