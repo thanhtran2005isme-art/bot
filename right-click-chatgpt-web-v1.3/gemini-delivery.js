@@ -1,7 +1,9 @@
 (() => {
   const DEFAULT_MODEL = 'gemini-3.8-flash';
-  let lastRequestText = '';
-  let lastRequestAt = 0;
+  const inFlightRequests = new Map();
+  let lastSuccessfulText = '';
+  let lastSuccessfulAt = 0;
+  let lastSuccessfulResult = null;
 
   async function setGeminiState(badge, title, color, clearAfter) {
     try {
@@ -79,6 +81,17 @@
     const model = String(settings.geminiModel || DEFAULT_MODEL).trim();
     if (!/^[A-Za-z0-9._-]+$/.test(model)) throw new Error('Tên Gemini model không hợp lệ.');
 
+    const isGemini3OrLater = /^gemini-(?:3(?:\\.\\d+)?|4)(?:-|$)/i.test(model);
+    const generationConfig = { maxOutputTokens: 512 };
+    if (isGemini3OrLater) {
+      // Lower thinking effort reduces latency for short, answer-only requests.
+      // Gemini 3/4 recommends thinkingLevel and does not support legacy sampling parameters.
+      generationConfig.thinkingConfig = { thinkingLevel: 'low' };
+    } else {
+      // Retain deterministic sampling for older model families that support it.
+      generationConfig.temperature = 0.2;
+    }
+
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 45000);
     try {
@@ -100,10 +113,7 @@
               role: 'user',
               parts: [{ text: String(question || '').trim() }]
             }],
-            generationConfig: {
-              temperature: 0.2,
-              maxOutputTokens: 300
-            }
+            generationConfig
           }),
           signal: controller.signal
         }
@@ -165,28 +175,36 @@
 
     const chunks = splitMessage(text, 3800);
     for (const chunk of chunks) {
-      const response = await fetch('https://api.telegram.org/bot' + token + '/sendMessage', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chat_id: chatId, text: chunk })
-      });
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 15000);
+      let response;
+      try {
+        response = await fetch('https://api.telegram.org/bot' + token + '/sendMessage', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chat_id: chatId, text: chunk }),
+          signal: controller.signal
+        });
+      } catch (error) {
+        if (error?.name === 'AbortError') {
+          throw new Error('Telegram API phản hồi quá lâu (15 giây). Kiểm tra Telegram trước khi gửi lại vì yêu cầu có thể đã được nhận.');
+        }
+        throw error;
+      } finally {
+        clearTimeout(timeout);
+      }
       const data = await readJsonResponse(response, 'Telegram API');
       if (!data?.ok) throw new Error('Telegram API: ' + (data?.description || 'gửi tin nhắn thất bại'));
     }
     return 'Telegram';
   }
 
-  async function handleGeminiDelivery(question) {
-    const text = String(question || '').trim();
-    if (!text) throw new Error('Không có văn bản được bôi đen.');
+  function formatDuration(ms) {
+    return (Math.max(0, Number(ms) || 0) / 1000).toFixed(1) + ' giây';
+  }
 
-    const now = Date.now();
-    if (text === lastRequestText && now - lastRequestAt < 1800) {
-      return { ok: true, duplicateIgnored: true };
-    }
-    lastRequestText = text;
-    lastRequestAt = now;
-
+  async function performGeminiDelivery(text) {
+    const startedAt = Date.now();
     let settings = null;
     let model = DEFAULT_MODEL;
     let stage = 'Gemini API';
@@ -199,29 +217,65 @@
       });
       await setGeminiState('AI', 'Đang gọi Gemini model ' + model + '…', '#4f46e5', 0);
 
+      const geminiStartedAt = Date.now();
       const answer = await askGemini(text, settings);
+      const geminiMs = Date.now() - geminiStartedAt;
       stage = 'Telegram';
       await saveLastStatus({
         ok: null, model, stage, source: 'right-click',
-        message: 'Gemini trả lời được; đang gửi đáp án tới Telegram…'
+        message: 'Gemini trả lời sau ' + formatDuration(geminiMs) + '; đang gửi đáp án tới Telegram…',
+        timings: { geminiMs }
       });
-      await setGeminiState('→', 'Model ' + model + ' đã trả lời. Đang gửi Telegram…', '#0f766e', 0);
+      await setGeminiState('→', 'Model ' + model + ' trả lời sau ' + formatDuration(geminiMs) + '. Đang gửi Telegram…', '#0f766e', 0);
 
+      const telegramStartedAt = Date.now();
       await sendTelegram(settings, makeMessage(answer));
+      const telegramMs = Date.now() - telegramStartedAt;
+      const totalMs = Date.now() - startedAt;
+      const timings = { geminiMs, telegramMs, totalMs };
+      const timingMessage = 'Đã gửi đáp án qua Telegram · Gemini ' + formatDuration(geminiMs) +
+        ', Telegram ' + formatDuration(telegramMs) + ', tổng ' + formatDuration(totalMs) + '.';
       await saveLastStatus({
         ok: true, model, stage: 'Hoàn tất', source: 'right-click',
-        message: 'Đã gửi đáp án qua Telegram.'
+        message: timingMessage, durationMs: totalMs, timings
       });
-      await setGeminiState('✓', 'Đã gửi đáp án qua Telegram · Model: ' + model, '#15803d', 3000);
-      return { ok: true, targets: ['Telegram'], model };
+      await setGeminiState('✓', 'Đã gửi đáp án qua Telegram · ' + formatDuration(totalMs) + ' · Model: ' + model, '#15803d', 3000);
+      return { ok: true, targets: ['Telegram'], model, durationMs: totalMs, timings };
     } catch (error) {
       const detail = String(error?.message || error);
       await saveLastStatus({
         ok: false, model, stage, source: 'right-click',
-        message: detail
+        message: detail, durationMs: Date.now() - startedAt
       });
       await setGeminiState('!', 'Model ' + model + ' · ' + detail, '#b91c1c', 0);
       throw error;
+    }
+  }
+
+  async function handleGeminiDelivery(question) {
+    const text = String(question || '').trim();
+    if (!text) throw new Error('Không có văn bản được bôi đen.');
+
+    // Share the same promise for rapid duplicate clicks, so an in-flight failure
+    // is reported as a failure rather than being falsely shown as delivered.
+    const existing = inFlightRequests.get(text);
+    if (existing) return existing;
+
+    const now = Date.now();
+    if (text === lastSuccessfulText && now - lastSuccessfulAt < 1800 && lastSuccessfulResult) {
+      return { ...lastSuccessfulResult, duplicateIgnored: true };
+    }
+
+    const pending = performGeminiDelivery(text);
+    inFlightRequests.set(text, pending);
+    try {
+      const result = await pending;
+      lastSuccessfulText = text;
+      lastSuccessfulAt = Date.now();
+      lastSuccessfulResult = result;
+      return result;
+    } finally {
+      if (inFlightRequests.get(text) === pending) inFlightRequests.delete(text);
     }
   }
 
