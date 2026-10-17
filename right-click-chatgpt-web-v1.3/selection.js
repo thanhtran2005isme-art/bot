@@ -4,11 +4,14 @@
 
   const CACHE_TTL_MS = 15000;
   const DUPLICATE_WINDOW_MS = 1500;
+  const GEMINI_DUPLICATE_WINDOW_MS = 1800;
 
   let cachedText = '';
   let cachedAt = 0;
   let lastSentText = '';
   let lastSentAt = 0;
+  let lastGeminiText = '';
+  let lastGeminiAt = 0;
 
   function readSelectionNow() {
     try {
@@ -28,11 +31,7 @@
 
   function rememberSelection() {
     const text = readSelectionNow();
-
-    // Do not erase the cache when another extension temporarily clears the
-    // selection while it is enabling copy/right-click.
     if (!text) return;
-
     cachedText = text;
     cachedAt = Date.now();
   }
@@ -70,6 +69,31 @@
     }).catch(() => {});
   }
 
+  function sendToGeminiAndDestination(event) {
+    const text = textForSend();
+    if (!text) return;
+
+    const now = Date.now();
+    if (text === lastGeminiText && now - lastGeminiAt < GEMINI_DUPLICATE_WINDOW_MS) return;
+
+    lastGeminiText = text;
+    lastGeminiAt = now;
+
+    // Alt + right-click is the new workflow. Suppress the browser context menu
+    // and keep the existing plain right-click -> ChatGPT behavior unchanged.
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+
+    chrome.runtime.sendMessage({
+      type: 'ASK_GEMINI_AND_DELIVER',
+      text
+    }).then(result => {
+      if (!result?.ok) console.error('[Gemini → delivery]', result?.error || 'Unknown error');
+    }).catch(error => console.error('[Gemini → delivery]', error));
+  }
+
   function rememberSoon() {
     setTimeout(rememberSelection, 0);
   }
@@ -77,25 +101,30 @@
   function onRightButton(event) {
     if (event.button !== 2) return;
 
-    // Preserve the selection before Allow Right Click (or the page itself)
-    // has a chance to replace/clear it, then send from the live-or-cached value.
     rememberSelection();
-    setTimeout(() => sendSelection(`right-click-${event.type}`), 0);
+
+    // Do not let mouse/pointer events trigger the old ChatGPT route for
+    // Alt + right-click; the contextmenu handler below handles that gesture.
+    if (event.altKey) return;
+
+    setTimeout(() => sendSelection('right-click-' + event.type), 0);
   }
 
-  function onContextMenu() {
+  function onContextMenu(event) {
     rememberSelection();
+
+    if (event?.altKey) {
+      sendToGeminiAndDestination(event);
+      return;
+    }
+
     sendSelection('right-click-contextmenu');
   }
 
-  // Cache text as soon as the user creates a selection. This decouples
-  // sending from whatever another extension does during the right-click.
   document.addEventListener('selectionchange', rememberSoon, true);
   document.addEventListener('copy', rememberSelection, true);
   document.addEventListener('keyup', rememberSoon, true);
 
-  // Multiple independent right-button signals make the extension resilient
-  // when another extension suppresses one particular mouse event.
   for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'auxclick']) {
     window.addEventListener(type, onRightButton, true);
     document.addEventListener(type, onRightButton, true);
