@@ -2,18 +2,16 @@
 
 Chrome Extension Manifest V3 với popup khi bấm icon extension, đồng thời cung cấp 3 lựa chọn trong menu chuột phải.
 
-## 1. Bấm icon extension
+## 1. Chọn chế độ mặc định
 
-Bấm icon extension trên thanh công cụ Chrome sẽ mở popup **Trợ lý AI**, không tự chạy ADB.
-
-Popup có ba thao tác:
-1. **ChatGPT Web** — gửi văn bản đang bôi đen sang ChatGPT.
-2. **Gemini → Telegram** — dùng Gemini API trả lời câu hỏi và gửi kết quả tới Telegram.
+Bấm icon extension để mở popup và **tích chọn một trong ba chế độ**:
+1. **ChatGPT Web** — gửi văn bản đang bôi đen sang ChatGPT và tự gửi.
+2. **Gemini → Telegram** — dùng Gemini API trả lời, sau đó gửi cả câu hỏi và đáp án tới Telegram.
 3. **Đọc màn hình Android** — đọc nội dung điện thoại qua ADB/OCR rồi gửi sang ChatGPT.
 
-Nút **Cài đặt API key / Telegram / Model** mở trang Extension options để cấu hình Gemini API key, model, Telegram Bot Token và Chat ID.
+Lựa chọn được lưu trong `chrome.storage.local` và giữ nguyên cho những lần sau. Khi sử dụng hằng ngày, không cần mở popup để chọn lại: **bôi đen văn bản trên trang web rồi nhấn chuột phải**, extension tự chạy chế độ đang lưu. Khi đang ở chế độ Android, thao tác bôi đen + chuột phải là thao tác kích hoạt; nội dung được đọc là màn hình điện thoại Android, không phải đoạn văn bản trên máy tính. Chuột phải ở nơi không có văn bản bôi đen vẫn hiện menu bình thường.
 
-Bạn cũng có thể bôi đen câu hỏi, nhấn chuột phải → **Trợ lý AI**, rồi chọn một trong ba mục. Việc mở menu chuột phải không tự gửi câu hỏi.
+Nút **Cài đặt API key / Telegram / Model** mở trang Options để cấu hình Gemini API key, model, Telegram Bot Token và Chat ID.
 
 ## 2. Cấu hình Gemini model và Telegram
 
@@ -30,7 +28,7 @@ Bạn cũng có thể bôi đen câu hỏi, nhấn chuột phải → **Trợ l�
 
 ## 3. Đọc text màn hình Android / scrcpy
 
-Bridge dùng ADB để chụp màn hình Android và Tesseract OCR để nhận dạng chữ. Chỉ thao tác **Đọc màn hình Android** mới kích hoạt bridge; bấm icon extension không tự đọc màn hình nữa.
+Bridge dùng ADB để chụp màn hình Android và Tesseract OCR để nhận dạng chữ. Bridge chỉ được gọi khi chế độ **Đọc màn hình Android** đang được chọn và người dùng bôi đen văn bản rồi nhấn chuột phải; bấm icon extension chỉ dùng để đổi chế độ/cài đặt, không tự đọc màn hình.
 
 Chuẩn bị:
 - Bật USB debugging trên điện thoại.
@@ -43,9 +41,9 @@ Bạn có thể mở popup hoặc menu chuột phải để chọn mục Android
 
 ## Thành phần chính
 - `manifest.json`: quyền extension và popup khi bấm icon.
-- `popup.html` / `popup.js`: ba lựa chọn nhanh cùng trạng thái cấu hình và nút mở Options.
-- `background-direct-v2.js`: menu chuột phải, điều phối ChatGPT/ADB.
-- `selection.js`: lưu văn bản được bôi đen để sử dụng từ menu.
+- `popup.html` / `popup.js`: bộ chọn một chế độ mặc định được lưu, kèm trạng thái cấu hình và nút mở Options.
+- `background-direct-v2.js`: điều phối chế độ đang lưu tới ChatGPT, Gemini/Telegram hoặc Android OCR.
+- `selection.js`: lưu văn bản được bôi đen và kích hoạt chế độ đã chọn khi nhấn chuột phải.
 - `chatgpt-direct.js`: điền prompt và gửi trên ChatGPT Web.
 - `gemini-delivery.js`: gọi Gemini API và gửi câu trả lời qua Telegram.
 - `options.html` / `options.js`: API key, model và Telegram settings.
