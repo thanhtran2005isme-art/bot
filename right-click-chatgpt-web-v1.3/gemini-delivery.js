@@ -25,6 +25,7 @@
       chrome.storage.local.get({
         geminiApiKey: '',
         geminiModel: DEFAULT_MODEL,
+        geminiThinkingLevel: 'low',
         telegramBotToken: '',
         telegramChatId: ''
       }, resolve);
@@ -82,11 +83,12 @@
     if (!/^[A-Za-z0-9._-]+$/.test(model)) throw new Error('Tên Gemini model không hợp lệ.');
 
     const isGemini3OrLater = /^gemini-(?:3(?:\.\d+)?|4)(?:-|$)/i.test(model);
+    const configuredLevel = String(settings.geminiThinkingLevel || 'low').toLowerCase();
+    const thinkingLevel = ['low', 'medium', 'high'].includes(configuredLevel) ? configuredLevel : 'low';
     const generationConfig = { maxOutputTokens: 512 };
     if (isGemini3OrLater) {
-      // Lower thinking effort reduces latency for short, answer-only requests.
-      // Gemini 3/4 recommends thinkingLevel and does not support legacy sampling parameters.
-      generationConfig.thinkingConfig = { thinkingLevel: 'low' };
+      // Make latency/accuracy trade-offs user-selectable for Gemini 3/4.
+      generationConfig.thinkingConfig = { thinkingLevel };
     } else {
       // Retain deterministic sampling for older model families that support it.
       generationConfig.temperature = 0.2;
@@ -122,6 +124,7 @@
       const data = await readJsonResponse(response, 'Gemini API', model);
       const candidate = data?.candidates?.[0];
       const answer = (candidate?.content?.parts || [])
+        .filter(part => part?.thought !== true)
         .map(part => String(part?.text || ''))
         .filter(Boolean)
         .join('\n')
