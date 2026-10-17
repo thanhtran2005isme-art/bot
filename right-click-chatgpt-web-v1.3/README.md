@@ -52,7 +52,7 @@ Chuẩn bị:
 ## Bảo mật
 - API key và Bot Token được lưu trong `chrome.storage.local`; đừng commit token thật hoặc chia sẻ chúng.
 - Extension cần quyền `<all_urls>` để cung cấp các thao tác trên website; chỉ cài bản bạn tin tưởng.
-- Bridge Android chỉ bind tại `127.0.0.1`.
+- Bridge Android chỉ bind tại `127.0.0.1` và chỉ chấp nhận request có Origin thuộc `chrome-extension://...`; request từ website thông thường hoặc không có Origin bị từ chối. Không mở bridge ra mạng LAN.
 
 
 ## Chẩn đoán model Gemini không chạy
@@ -81,3 +81,12 @@ Sau khi pull mã mới và bấm Reload tại `chrome://extensions/`, hãy tải
 - Chỉ thử các model hướng tới trả lời văn bản; tự bỏ qua nhóm chuyên tạo ảnh, âm thanh/TTS, transcribe, embedding, robotics và video.
 - Bài thử sử dụng 256 token thay vì 8; nếu kết thúc bằng `MAX_TOKENS`, tự thử lại với 1024 token để tránh báo lỗi giả.
 - Model phản hồi `429 RESOURCE_EXHAUSTED` hoặc lỗi mạng/dịch vụ tạm thời được đưa vào nhóm **Quota / lỗi tạm thời — chưa kết luận**, không gộp với lỗi ID/quyền truy cập/model không hỗ trợ.
+
+
+### Tối ưu phản hồi và bảo vệ bridge (v2.6.9)
+- Với model Gemini 3/4, dùng `thinkingLevel: low` cho luồng trả lời đáp án ngắn và bỏ `temperature` không còn phù hợp với dòng model mới; model đời cũ vẫn giữ `temperature: 0.2`.
+- Thông báo thành công hiển thị tổng thời gian; trang Options lưu riêng thời gian Gemini và Telegram để dễ xác định bước nào chậm.
+- Telegram có timeout 15 giây; tải danh sách model có timeout 15 giây để tránh giao diện chờ vô hạn.
+- Nhấp chuột phải lặp lại cùng câu hỏi trong lúc request đang chạy sẽ dùng chung request; chỉ lần gửi thành công mới được ghi nhận để chống báo thành công giả.
+- Nút điện thoại nổi chỉ xuất hiện khi chọn chế độ Android.
+- Bridge không còn CORS wildcard và chặn request không đến từ Chrome extension. Sau khi cập nhật mã, hãy khởi động lại `start-bridge.bat` rồi Reload extension và tải lại các tab.
