@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Right Click → ChatGPT Web",
-  "version": "2.6.6",
-  "description": "Chọn chế độ AI mặc định; khi chuột phải hiện trạng thái xử lý/thành công/lỗi rõ ràng.",
+  "version": "2.6.7",
+  "description": "Chọn chế độ AI mặc định; kiểm tra hàng loạt model Gemini và xem danh sách model hoạt động được.",
   "permissions": [
     "tabs",
     "scripting",
